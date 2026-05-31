@@ -11,6 +11,8 @@
     "axios": "^1.16.1",
     "expo": "~56.0.8",
     "expo-linear-gradient": "~56.0.4",
+    "expo-location": "~56.0.15",
+    "expo-notifications": "~56.0.15",
     "expo-status-bar": "~56.0.4",
     "lucide-react-native": "^1.17.0",
     "react": "19.2.3",
@@ -19,6 +21,7 @@
     "react-native-reanimated": "4.3.1",
     "react-native-safe-area-context": "~5.7.0",
     "react-native-screens": "4.25.2",
+    "react-native-webview": "13.16.1",
     "zustand": "^5.0.14"
   },
   "devDependencies": {

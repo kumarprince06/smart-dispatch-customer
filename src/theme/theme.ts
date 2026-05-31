@@ -1,39 +1,72 @@
 import { Dimensions, Platform } from 'react-native';
+import { useAuthStore } from '../store/authStore';
 
 const { width, height } = Dimensions.get('window');
 
-export const COLORS = {
-  // Deep, premium dark mode palette
-  background: '#0F172A', // Slate 900
-  surface: '#1E293B', // Slate 800
-  surfaceLight: '#334155', // Slate 700
+export const lightColors = {
+  background: '#F8FAFC',
+  surface: '#FFFFFF',
+  surfaceLight: '#F1F5F9',
   
-  // Neon accents (Glassmorphism friendly)
-  primary: '#6366F1', // Indigo 500 (Matches admin panel)
+  primary: '#6366F1',
   primaryLight: '#818CF8', 
   primaryDark: '#4338CA',
   
-  // Secondary / Gradients
-  accent: '#14B8A6', // Teal 500
+  accent: '#14B8A6',
   
-  // Semantic
-  success: '#10B981', // Emerald 500
-  warning: '#F59E0B', // Amber 500
-  error: '#EF4444', // Red 500
-  info: '#3B82F6', // Blue 500
+  success: '#10B981',
+  warning: '#F59E0B',
+  error: '#EF4444',
+  info: '#3B82F6',
 
-  // Text
-  text: '#F8FAFC', // Slate 50
-  textMuted: '#94A3B8', // Slate 400
+  text: '#0F172A',
+  textMuted: '#64748B',
+  textInverse: '#FFFFFF',
+
+  border: '#E2E8F0',
+  
+  transparent: 'transparent',
+  overlay: 'rgba(15, 23, 42, 0.5)',
+  glass: 'rgba(255, 255, 255, 0.7)',
+};
+
+export const darkColors = {
+  background: '#0F172A',
+  surface: '#1E293B',
+  surfaceLight: '#334155',
+  
+  primary: '#6366F1',
+  primaryLight: '#818CF8', 
+  primaryDark: '#4338CA',
+  
+  accent: '#14B8A6',
+  
+  success: '#10B981',
+  warning: '#F59E0B',
+  error: '#EF4444',
+  info: '#3B82F6',
+
+  text: '#F8FAFC',
+  textMuted: '#94A3B8',
   textInverse: '#0F172A',
 
-  // Borders & Dividers
   border: 'rgba(255,255,255,0.1)',
   
-  // Utilities
   transparent: 'transparent',
-  overlay: 'rgba(15, 23, 42, 0.7)',
+  overlay: 'rgba(15, 23, 42, 0.8)',
   glass: 'rgba(30, 41, 59, 0.7)',
+};
+
+// Default static fallback for components not yet refactored
+export const COLORS = lightColors;
+
+// Hook to get the current theme colors dynamically
+export const useTheme = () => {
+  const isDarkMode = useAuthStore((state: any) => state.user?.darkMode);
+  return {
+    colors: isDarkMode ? darkColors : lightColors,
+    isDarkMode,
+  };
 };
 
 export const SIZES = {
@@ -54,13 +87,13 @@ export const SIZES = {
 };
 
 export const TYPOGRAPHY = {
-  h1: { fontSize: 32, fontWeight: '700' as const, color: COLORS.text, letterSpacing: -1 },
-  h2: { fontSize: 24, fontWeight: '700' as const, color: COLORS.text, letterSpacing: -0.5 },
-  h3: { fontSize: 20, fontWeight: '600' as const, color: COLORS.text },
-  body1: { fontSize: 16, fontWeight: '400' as const, color: COLORS.text },
-  body2: { fontSize: 14, fontWeight: '400' as const, color: COLORS.textMuted },
-  caption: { fontSize: 12, fontWeight: '500' as const, color: COLORS.textMuted },
-  button: { fontSize: 16, fontWeight: '600' as const, color: COLORS.textInverse, letterSpacing: 0.5 },
+  h1: { fontSize: 32, fontWeight: '700' as const, letterSpacing: -1 },
+  h2: { fontSize: 24, fontWeight: '700' as const, letterSpacing: -0.5 },
+  h3: { fontSize: 20, fontWeight: '600' as const },
+  body1: { fontSize: 16, fontWeight: '400' as const },
+  body2: { fontSize: 14, fontWeight: '400' as const },
+  caption: { fontSize: 12, fontWeight: '500' as const },
+  button: { fontSize: 16, fontWeight: '600' as const, letterSpacing: 0.5 },
 };
 
 export const SHADOWS = {

@@ -1,9 +1,11 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, FlatList, ActivityIndicator, Modal, TextInput, KeyboardAvoidingView, Platform, Alert } from 'react-native';
+import React, { useState, useEffect, useCallback } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, FlatList, ActivityIndicator, Modal, TextInput, KeyboardAvoidingView, Platform, Alert, RefreshControl } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ArrowLeft, MapPin, Plus, Home, Briefcase, MoreVertical } from 'lucide-react-native';
 import { useNavigation } from '@react-navigation/native';
 import api from '../../api/axios';
+import { WebView } from 'react-native-webview';
+import * as Location from 'expo-location';
 
 export interface Address {
   id: number;
@@ -20,6 +22,73 @@ export default function SavedAddressesScreen() {
   const [newLabel, setNewLabel] = useState('Home');
   const [newAddress, setNewAddress] = useState('');
   const [saving, setSaving] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  
+  // Default coordinates (Delhi)
+  const [lat, setLat] = useState(28.6139);
+  const [lng, setLng] = useState(77.2090);
+
+  const mapHtml = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+      <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+      <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+      <style>
+        body { padding: 0; margin: 0; }
+        html, body, #map { height: 100%; width: 100%; }
+        /* Custom Marker CSS */
+        .custom-marker {
+          display: flex;
+          justify-content: center;
+          align-items: center;
+        }
+        .pin {
+          width: 24px;
+          height: 24px;
+          background-color: #0F172A;
+          border-radius: 12px 12px 12px 0;
+          transform: rotate(-45deg);
+          border: 3px solid white;
+          box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+        }
+      </style>
+    </head>
+    <body>
+      <div id="map"></div>
+      <script>
+        var map = L.map('map', {zoomControl: false}).setView([${lat}, ${lng}], 15);
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+          attribution: ''
+        }).addTo(map);
+        
+        var customIcon = L.divIcon({
+          className: 'custom-marker',
+          html: '<div class="pin"></div>',
+          iconSize: [24, 24],
+          iconAnchor: [12, 24]
+        });
+        
+        var marker = L.marker([${lat}, ${lng}], {icon: customIcon, draggable: true}).addTo(map);
+        
+        // Update marker when map is dragged
+        map.on('move', function () {
+          marker.setLatLng(map.getCenter());
+        });
+        
+        // Send coordinates back to React Native when movement stops
+        map.on('moveend', function () {
+          var center = map.getCenter();
+          window.ReactNativeWebView.postMessage(JSON.stringify({
+            lat: center.lat,
+            lng: center.lng
+          }));
+        });
+      </script>
+    </body>
+    </html>
+  `;
 
   const fetchAddresses = async () => {
     try {
@@ -38,6 +107,26 @@ export default function SavedAddressesScreen() {
     fetchAddresses();
   }, []);
 
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await fetchAddresses();
+    setRefreshing(false);
+  }, []);
+
+  const openAddModal = async () => {
+    setModalVisible(true);
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status === 'granted') {
+        const location = await Location.getCurrentPositionAsync({});
+        setLat(location.coords.latitude);
+        setLng(location.coords.longitude);
+      }
+    } catch (e) {
+      console.log('Location permission failed', e);
+    }
+  };
+
   const handleAddAddress = async () => {
     if (!newAddress.trim()) {
       Alert.alert('Missing Info', 'Please enter an address');
@@ -48,8 +137,8 @@ export default function SavedAddressesScreen() {
       const res = await api.post('/addresses', {
         label: newLabel,
         addressLine1: newAddress,
-        latitude: 28.6139,
-        longitude: 77.2090,
+        latitude: lat,
+        longitude: lng,
         isDefault: addresses.length === 0
       });
       if (res.data.success) {
@@ -71,7 +160,7 @@ export default function SavedAddressesScreen() {
           <ArrowLeft size={24} color="#0F172A" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Saved Addresses</Text>
-        <TouchableOpacity style={styles.addBtn} onPress={() => setModalVisible(true)}>
+        <TouchableOpacity style={styles.addBtn} onPress={openAddModal}>
           <Plus size={24} color="#FFFFFF" />
         </TouchableOpacity>
       </View>
@@ -81,15 +170,18 @@ export default function SavedAddressesScreen() {
           <ActivityIndicator size="large" color="#0F172A" />
         </View>
       ) : addresses.length === 0 ? (
-        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+        <ScrollView contentContainerStyle={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+        >
           <MapPin size={48} color="#CBD5E1" />
           <Text style={{ marginTop: 16, fontSize: 16, color: '#64748B' }}>No saved addresses yet.</Text>
-        </View>
+        </ScrollView>
       ) : (
         <FlatList
           data={addresses}
           keyExtractor={(item) => item.id.toString()}
           contentContainerStyle={styles.list}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#0F172A" />}
           renderItem={({ item }) => (
             <View style={styles.card}>
               <View style={[styles.iconWrap, { backgroundColor: item.label?.toLowerCase() === 'home' ? '#EFF6FF' : item.label?.toLowerCase() === 'office' ? '#FEF3C7' : '#ECFDF5' }]}>
@@ -129,6 +221,24 @@ export default function SavedAddressesScreen() {
               multiline
             />
 
+            <View style={styles.mapWrap}>
+              <WebView
+                source={{ html: mapHtml }}
+                style={{ flex: 1 }}
+                scrollEnabled={false}
+                onMessage={(event) => {
+                  try {
+                    const data = JSON.parse(event.nativeEvent.data);
+                    setLat(data.lat);
+                    setLng(data.lng);
+                  } catch (e) {}
+                }}
+              />
+              <View style={styles.mapOverlayTextWrap}>
+                <Text style={styles.mapOverlayText}>Drag map to pin location</Text>
+              </View>
+            </View>
+
             <View style={styles.modalActions}>
               <TouchableOpacity style={styles.cancelBtn} onPress={() => setModalVisible(false)} disabled={saving}>
                 <Text style={styles.cancelBtnText}>Cancel</Text>
@@ -166,7 +276,12 @@ const styles = StyleSheet.create({
   labelBadgeActive: { backgroundColor: '#0F172A', borderColor: '#0F172A' },
   labelText: { fontSize: 14, fontWeight: '700', color: '#64748B' },
   labelTextActive: { color: '#FFFFFF' },
-  input: { backgroundColor: '#F8FAFC', borderWidth: 1, borderColor: '#E2E8F0', borderRadius: 16, padding: 16, height: 100, fontSize: 15, color: '#0F172A', textAlignVertical: 'top', marginBottom: 24 },
+  input: { backgroundColor: '#F8FAFC', borderWidth: 1, borderColor: '#E2E8F0', borderRadius: 16, padding: 16, height: 80, fontSize: 15, color: '#0F172A', textAlignVertical: 'top', marginBottom: 16 },
+  
+  mapWrap: { height: 180, borderRadius: 16, overflow: 'hidden', marginBottom: 24, borderWidth: 1, borderColor: '#E2E8F0', position: 'relative' },
+  mapOverlayTextWrap: { position: 'absolute', top: 12, alignSelf: 'center', backgroundColor: '#0F172A', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 12 },
+  mapOverlayText: { color: '#FFFFFF', fontSize: 12, fontWeight: '700' },
+  
   modalActions: { flexDirection: 'row', gap: 16 },
   cancelBtn: { flex: 1, height: 56, borderRadius: 16, backgroundColor: '#F1F5F9', justifyContent: 'center', alignItems: 'center' },
   cancelBtnText: { fontSize: 16, fontWeight: '700', color: '#64748B' },

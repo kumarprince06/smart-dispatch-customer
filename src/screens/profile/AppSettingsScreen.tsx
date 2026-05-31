@@ -1,15 +1,18 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Switch, ScrollView, ActivityIndicator } from 'react-native';
+import React, { useState, useEffect, useCallback } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, Switch, ScrollView, ActivityIndicator, RefreshControl } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ArrowLeft, Bell, Moon, Globe, Shield, Smartphone, Settings } from 'lucide-react-native';
 import { useNavigation } from '@react-navigation/native';
 import api from '../../api/axios';
 import { CustomAlert } from '../../components/common/CustomAlert';
 import { useAuthStore } from '../../store/authStore';
+import { useTheme } from '../../theme/theme';
+import * as Notifications from 'expo-notifications';
 
 export default function AppSettingsScreen() {
   const navigation = useNavigation();
   const { user, updateUser } = useAuthStore();
+  const { colors, isDarkMode } = useTheme();
   
   const [pushNotif, setPushNotif] = useState(user?.notificationsEnabled !== false);
   const [smsNotif, setSmsNotif] = useState(user?.smsEnabled !== false);
@@ -17,6 +20,7 @@ export default function AppSettingsScreen() {
   
   const [serverSettings, setServerSettings] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
   // Custom Alert state
   const [alertVisible, setAlertVisible] = useState(false);
@@ -48,9 +52,26 @@ export default function AppSettingsScreen() {
     fetchSettings();
   }, []);
 
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      const res = await api.get('/app-settings/public');
+      if (res.data.success) setServerSettings(res.data.data || []);
+    } catch (e) {} finally { setRefreshing(false); }
+  }, []);
+
   const updatePreference = async (key: string, value: boolean) => {
     try {
-      if (key === 'push') setPushNotif(value);
+      if (key === 'push') {
+        if (value) {
+          const { status } = await Notifications.requestPermissionsAsync();
+          if (status !== 'granted') {
+            showAlert('Permission Required', 'Please enable notifications in your phone settings to receive live tracking updates.', 'error');
+            return; // Don't enable it if permission denied
+          }
+        }
+        setPushNotif(value);
+      }
       if (key === 'sms') setSmsNotif(value);
       if (key === 'dark') setDarkMode(value);
 
@@ -73,70 +94,75 @@ export default function AppSettingsScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
-          <ArrowLeft size={24} color="#0F172A" />
+        <TouchableOpacity onPress={() => navigation.goBack()} style={[styles.backBtn, { backgroundColor: colors.surface }]}>
+          <ArrowLeft size={24} color={colors.text} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>App Settings</Text>
+        <Text style={[styles.headerTitle, { color: colors.text }]}>App Settings</Text>
         <View style={{ width: 44 }} />
       </View>
 
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView 
+        contentContainerStyle={styles.content}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />
+        }
+      >
         <Text style={styles.sectionTitle}>Notifications</Text>
-        <View style={styles.card}>
+        <View style={[styles.card, { backgroundColor: colors.surface }]}>
           <View style={styles.row}>
             <View style={styles.rowLeft}>
-              <Bell size={20} color="#64748B" />
-              <Text style={styles.rowLabel}>Push Notifications</Text>
+              <Bell size={20} color={colors.textMuted} />
+              <Text style={[styles.rowLabel, { color: colors.text }]}>Push Notifications</Text>
             </View>
-            <Switch value={pushNotif} onValueChange={(v) => updatePreference('push', v)} trackColor={{ true: '#10B981', false: '#E2E8F0' }} />
+            <Switch value={pushNotif} onValueChange={(v) => updatePreference('push', v)} trackColor={{ true: colors.primary, false: colors.border }} thumbColor="#FFF" />
           </View>
-          <View style={styles.divider} />
+          <View style={[styles.divider, { backgroundColor: colors.border }]} />
           <View style={styles.row}>
             <View style={styles.rowLeft}>
-              <Smartphone size={20} color="#64748B" />
-              <Text style={styles.rowLabel}>SMS Alerts</Text>
+              <Smartphone size={20} color={colors.textMuted} />
+              <Text style={[styles.rowLabel, { color: colors.text }]}>SMS Alerts</Text>
             </View>
-            <Switch value={smsNotif} onValueChange={(v) => updatePreference('sms', v)} trackColor={{ true: '#10B981', false: '#E2E8F0' }} />
+            <Switch value={smsNotif} onValueChange={(v) => updatePreference('sms', v)} trackColor={{ true: colors.primary, false: colors.border }} thumbColor="#FFF" />
           </View>
         </View>
 
         <Text style={styles.sectionTitle}>General</Text>
-        <View style={styles.card}>
+        <View style={[styles.card, { backgroundColor: colors.surface }]}>
           <TouchableOpacity style={styles.rowAction}>
             <View style={styles.rowLeft}>
-              <Globe size={20} color="#64748B" />
-              <Text style={styles.rowLabel}>Language</Text>
+              <Globe size={20} color={colors.textMuted} />
+              <Text style={[styles.rowLabel, { color: colors.text }]}>Language</Text>
             </View>
-            <Text style={styles.rowValue}>{user?.preferredLanguage || 'English'}</Text>
+            <Text style={[styles.rowValue, { color: colors.primary }]}>{user?.preferredLanguage || 'English'}</Text>
           </TouchableOpacity>
-          <View style={styles.divider} />
+          <View style={[styles.divider, { backgroundColor: colors.border }]} />
           <View style={styles.row}>
             <View style={styles.rowLeft}>
-              <Moon size={20} color="#64748B" />
-              <Text style={styles.rowLabel}>Dark Mode</Text>
+              <Moon size={20} color={colors.textMuted} />
+              <Text style={[styles.rowLabel, { color: colors.text }]}>Dark Mode</Text>
             </View>
-            <Switch value={darkMode} onValueChange={(v) => updatePreference('dark', v)} trackColor={{ true: '#10B981', false: '#E2E8F0' }} />
+            <Switch value={darkMode} onValueChange={(v) => updatePreference('dark', v)} trackColor={{ true: colors.primary, false: colors.border }} thumbColor="#FFF" />
           </View>
         </View>
 
         {serverSettings.length > 0 && (
           <>
             <Text style={styles.sectionTitle}>Global Configurations</Text>
-            <View style={styles.card}>
+            <View style={[styles.card, { backgroundColor: colors.surface }]}>
               {serverSettings.map((setting, index) => (
                 <View key={setting.key}>
                   <TouchableOpacity style={styles.rowAction} onPress={() => {
                     showAlert(setting.key, `${setting.description}\n\nCurrent Value: ${setting.value}`);
                   }}>
                     <View style={styles.rowLeft}>
-                      <Settings size={20} color="#64748B" />
-                      <Text style={styles.rowLabel}>{setting.key.replace(/_/g, ' ')}</Text>
+                      <Settings size={20} color={colors.textMuted} />
+                      <Text style={[styles.rowLabel, { color: colors.text }]}>{setting.key.replace(/_/g, ' ')}</Text>
                     </View>
-                    <Text style={styles.rowValue} numberOfLines={1}>{setting.value.substring(0, 15)}{setting.value.length > 15 ? '...' : ''}</Text>
+                    <Text style={[styles.rowValue, { color: colors.primary }]} numberOfLines={1}>{setting.value.substring(0, 15)}{setting.value.length > 15 ? '...' : ''}</Text>
                   </TouchableOpacity>
-                  {index < serverSettings.length - 1 && <View style={styles.divider} />}
+                  {index < serverSettings.length - 1 && <View style={[styles.divider, { backgroundColor: colors.border }]} />}
                 </View>
               ))}
             </View>
@@ -144,11 +170,11 @@ export default function AppSettingsScreen() {
         )}
 
         <Text style={styles.sectionTitle}>Privacy & Security</Text>
-        <View style={styles.card}>
+        <View style={[styles.card, { backgroundColor: colors.surface }]}>
           <TouchableOpacity style={styles.rowAction}>
             <View style={styles.rowLeft}>
-              <Shield size={20} color="#64748B" />
-              <Text style={styles.rowLabel}>Privacy Policy</Text>
+              <Shield size={20} color={colors.textMuted} />
+              <Text style={[styles.rowLabel, { color: colors.text }]}>Privacy Policy</Text>
             </View>
           </TouchableOpacity>
         </View>
@@ -167,17 +193,17 @@ export default function AppSettingsScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F8FAFC' },
+  container: { flex: 1 },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingVertical: 16 },
-  backBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: '#FFFFFF', justifyContent: 'center', alignItems: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 2 },
-  headerTitle: { fontSize: 20, fontWeight: '800', color: '#0F172A' },
+  backBtn: { width: 44, height: 44, borderRadius: 22, justifyContent: 'center', alignItems: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 2 },
+  headerTitle: { fontSize: 20, fontWeight: '800' },
   content: { padding: 24 },
   sectionTitle: { fontSize: 14, fontWeight: '800', color: '#94A3B8', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 12, marginLeft: 4 },
-  card: { backgroundColor: '#FFFFFF', borderRadius: 24, paddingHorizontal: 20, marginBottom: 32, shadowColor: '#0F172A', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.04, shadowRadius: 16, elevation: 3 },
+  card: { borderRadius: 24, paddingHorizontal: 20, marginBottom: 32, shadowColor: '#000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.04, shadowRadius: 16, elevation: 3 },
   row: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 16 },
   rowAction: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 16 },
   rowLeft: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  rowLabel: { fontSize: 16, fontWeight: '600', color: '#0F172A' },
-  rowValue: { fontSize: 15, fontWeight: '700', color: '#3B82F6' },
-  divider: { height: 1, backgroundColor: '#F1F5F9' }
+  rowLabel: { fontSize: 16, fontWeight: '600' },
+  rowValue: { fontSize: 15, fontWeight: '700' },
+  divider: { height: 1 }
 });
