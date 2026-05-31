@@ -9,6 +9,16 @@ const { width } = Dimensions.get('window');
 
 export default function CreateOrderScreen({ navigation }: any) {
   const [isLoading, setIsLoading] = useState(false);
+  const [estimateLoading, setEstimateLoading] = useState(false);
+  const [priceEstimate, setPriceEstimate] = useState<any>(null);
+  
+  const [pickupLat, setPickupLat] = useState(28.6139);
+  const [pickupLng, setPickupLng] = useState(77.2090);
+  const [dropLat, setDropLat] = useState(28.5355);
+  const [dropLng, setDropLng] = useState(77.2410);
+
+  const [pickupSuggestions, setPickupSuggestions] = useState<any[]>([]);
+  const [dropSuggestions, setDropSuggestions] = useState<any[]>([]);
   
   const [formData, setFormData] = useState({
     pickupAddress: '',
@@ -22,6 +32,51 @@ export default function CreateOrderScreen({ navigation }: any) {
     packageWeightKg: '1.0'
   });
 
+  // Fetch estimate whenever coordinates or package type changes
+  React.useEffect(() => {
+    if (formData.pickupAddress.length > 3 && formData.dropAddress.length > 3) {
+      fetchEstimate();
+    }
+  }, [pickupLat, pickupLng, dropLat, dropLng, formData.packageType]);
+
+  const searchAddress = async (text: string, isPickup: boolean) => {
+    if (isPickup) setFormData({ ...formData, pickupAddress: text });
+    else setFormData({ ...formData, dropAddress: text });
+
+    if (text.length > 3) {
+      try {
+        const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(text)}&limit=5`);
+        const data = await res.json();
+        if (isPickup) setPickupSuggestions(data);
+        else setDropSuggestions(data);
+      } catch (e) {}
+    } else {
+      if (isPickup) setPickupSuggestions([]);
+      else setDropSuggestions([]);
+    }
+  };
+
+  const fetchEstimate = async () => {
+    setEstimateLoading(true);
+    try {
+      const res = await api.post('/pricing/estimate', {
+        pickupLat: pickupLat,
+        pickupLng: pickupLng,
+        dropoffLat: dropLat, 
+        dropoffLng: dropLng,
+        priority: 'STANDARD',
+        packageType: formData.packageType
+      });
+      if (res.data.success) {
+        setPriceEstimate(res.data.data);
+      }
+    } catch (e) {
+      console.log('Failed to fetch estimate', e);
+    } finally {
+      setEstimateLoading(false);
+    }
+  };
+
   const handleCreateOrder = async () => {
     if (!formData.pickupAddress || !formData.dropAddress) {
       Alert.alert('Missing Details', 'Please provide both pickup and drop addresses.');
@@ -31,10 +86,10 @@ export default function CreateOrderScreen({ navigation }: any) {
     try {
       const payload = {
         pickupAddress: formData.pickupAddress,
-        pickupLatitude: 28.6139, pickupLongitude: 77.2090,
+        pickupLatitude: pickupLat, pickupLongitude: pickupLng,
         pickupContactName: formData.pickupContactName, pickupContactPhone: formData.pickupContactPhone,
         dropAddress: formData.dropAddress,
-        dropLatitude: 28.5355, dropLongitude: 77.2410,
+        dropLatitude: dropLat, dropLongitude: dropLng,
         dropContactName: formData.dropContactName, dropContactPhone: formData.dropContactPhone,
         packageType: formData.packageType, packageDescription: formData.packageDescription,
         packageWeightKg: parseFloat(formData.packageWeightKg) || 1.0, priority: 'STANDARD'
@@ -74,7 +129,22 @@ export default function CreateOrderScreen({ navigation }: any) {
                   </View>
                   <Text style={styles.cardTitle}>Pickup Details</Text>
                 </View>
-                <TextInput style={styles.input} placeholder="Complete Pickup Address" placeholderTextColor="#94A3B8" value={formData.pickupAddress} onChangeText={t => setFormData({...formData, pickupAddress: t})} />
+                <TextInput style={styles.input} placeholder="Search Pickup Address" placeholderTextColor="#94A3B8" value={formData.pickupAddress} onChangeText={(t) => searchAddress(t, true)} />
+                {pickupSuggestions.length > 0 && (
+                  <View style={styles.suggestionsCard}>
+                    {pickupSuggestions.map((item, idx) => (
+                      <TouchableOpacity key={idx} style={styles.suggestionItem} onPress={() => {
+                        setFormData({ ...formData, pickupAddress: item.display_name });
+                        setPickupLat(parseFloat(item.lat));
+                        setPickupLng(parseFloat(item.lon));
+                        setPickupSuggestions([]);
+                      }}>
+                        <MapPin size={16} color="#64748B" />
+                        <Text style={styles.suggestionText} numberOfLines={2}>{item.display_name}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                )}
                 <View style={styles.row}>
                   <TextInput style={[styles.input, { flex: 1 }]} placeholder="Sender Name" placeholderTextColor="#94A3B8" value={formData.pickupContactName} onChangeText={t => setFormData({...formData, pickupContactName: t})} />
                   <TextInput style={[styles.input, { flex: 1 }]} placeholder="Phone No." placeholderTextColor="#94A3B8" keyboardType="phone-pad" value={formData.pickupContactPhone} onChangeText={t => setFormData({...formData, pickupContactPhone: t})} />
@@ -88,7 +158,22 @@ export default function CreateOrderScreen({ navigation }: any) {
                   </View>
                   <Text style={styles.cardTitle}>Drop-off Details</Text>
                 </View>
-                <TextInput style={styles.input} placeholder="Complete Drop-off Address" placeholderTextColor="#94A3B8" value={formData.dropAddress} onChangeText={t => setFormData({...formData, dropAddress: t})} />
+                <TextInput style={styles.input} placeholder="Search Drop-off Address" placeholderTextColor="#94A3B8" value={formData.dropAddress} onChangeText={(t) => searchAddress(t, false)} />
+                {dropSuggestions.length > 0 && (
+                  <View style={styles.suggestionsCard}>
+                    {dropSuggestions.map((item, idx) => (
+                      <TouchableOpacity key={idx} style={styles.suggestionItem} onPress={() => {
+                        setFormData({ ...formData, dropAddress: item.display_name });
+                        setDropLat(parseFloat(item.lat));
+                        setDropLng(parseFloat(item.lon));
+                        setDropSuggestions([]);
+                      }}>
+                        <MapPin size={16} color="#64748B" />
+                        <Text style={styles.suggestionText} numberOfLines={2}>{item.display_name}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                )}
                 <View style={styles.row}>
                   <TextInput style={[styles.input, { flex: 1 }]} placeholder="Receiver Name" placeholderTextColor="#94A3B8" value={formData.dropContactName} onChangeText={t => setFormData({...formData, dropContactName: t})} />
                   <TextInput style={[styles.input, { flex: 1 }]} placeholder="Phone No." placeholderTextColor="#94A3B8" keyboardType="phone-pad" value={formData.dropContactPhone} onChangeText={t => setFormData({...formData, dropContactPhone: t})} />
@@ -123,15 +208,36 @@ export default function CreateOrderScreen({ navigation }: any) {
               <Info size={16} color="#64748B" />
               <Text style={styles.infoText}>A rider will be assigned immediately after booking.</Text>
             </View>
-
+            <View style={{ height: 20 }} />
           </ScrollView>
         </KeyboardAvoidingView>
 
+        {priceEstimate && (
+          <View style={{ padding: 16, backgroundColor: '#F8FAFC', borderTopWidth: 1, borderTopColor: '#E2E8F0' }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}>
+              <Text style={{ fontSize: 14, color: '#64748B' }}>Distance ({priceEstimate.distanceKm} km)</Text>
+              <Text style={{ fontSize: 14, color: '#64748B' }}>{priceEstimate.currency}{priceEstimate.baseFee}</Text>
+            </View>
+            {priceEstimate.surgeMultiplier > 1 && (
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}>
+                <Text style={{ fontSize: 14, color: '#F59E0B' }}>High Demand Surge</Text>
+                <Text style={{ fontSize: 14, color: '#F59E0B' }}>x{priceEstimate.surgeMultiplier}</Text>
+              </View>
+            )}
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Text style={{ fontSize: 18, fontWeight: '700', color: '#0F172A' }}>Total Estimated</Text>
+              <Text style={{ fontSize: 24, fontWeight: '800', color: '#3B82F6' }}>
+                {priceEstimate.currency}{priceEstimate.estimatedFee}
+              </Text>
+            </View>
+          </View>
+        )}
+
         <View style={styles.footer}>
           <TouchableOpacity 
-            style={[styles.submitButton, isLoading && styles.disabledButton]}
+            style={[styles.submitButton, (isLoading || estimateLoading) && styles.disabledButton]}
             onPress={handleCreateOrder}
-            disabled={isLoading}
+            disabled={isLoading || estimateLoading}
           >
             <LinearGradient colors={['#0F172A', '#1E293B']} style={styles.gradientButton}>
               {isLoading ? (
@@ -182,4 +288,7 @@ const styles = StyleSheet.create({
   disabledButton: { opacity: 0.7 },
   gradientButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', height: 60, gap: 12 },
   buttonText: { color: '#FFFFFF', fontSize: 16, fontWeight: '800' },
+  suggestionsCard: { backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#E2E8F0', borderRadius: 12, marginTop: -8, marginBottom: 12, overflow: 'hidden' },
+  suggestionItem: { flexDirection: 'row', alignItems: 'center', gap: 8, padding: 12, borderBottomWidth: 1, borderBottomColor: '#F1F5F9' },
+  suggestionText: { flex: 1, fontSize: 13, color: '#334155' }
 });
