@@ -1,8 +1,10 @@
 import React, { useState, useRef } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, TextInput, ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView, Dimensions, Modal } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { ArrowLeft, MapPin, Package, CheckCircle, Navigation, Info, ChevronRight, Map } from 'lucide-react-native';
+import { ArrowLeft, MapPin, Package, CheckCircle, Navigation, Info, ChevronRight, Map, Wallet, CreditCard, Banknote, ShieldCheck } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+// @ts-ignore
+import RazorpayCheckout from 'react-native-razorpay';
 import api from '../../api/axios';
 import LocationPickerModal from '../../components/LocationPickerModal';
 import { SIZES, lightColors } from '../../theme/theme';
@@ -18,7 +20,7 @@ export default function CreateOrderScreen({ navigation }: any) {
   const [isLoading, setIsLoading] = useState(false);
   const [estimateLoading, setEstimateLoading] = useState(false);
   const [priceEstimate, setPriceEstimate] = useState<any>(null);
-  const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [pickupLat, setPickupLat] = useState<number | null>(null);
   const [pickupLng, setPickupLng] = useState<number | null>(null);
@@ -37,13 +39,29 @@ export default function CreateOrderScreen({ navigation }: any) {
     dropAddress: '',
     dropContactName: '',
     dropContactPhone: '',
-    packageType: 'DOCUMENTS',
+    packageType: 'DOCUMENT',
     packageDescription: ''
   });
 
+  
   const [items, setItems] = useState([{
     name: '', quantity: '1', weight: '1.0', length: '', width: '', height: ''
   }]);
+
+  // Payment Modal State
+  const [paymentModalVisible, setPaymentModalVisible] = useState(false);
+  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<'WALLET' | 'RAZORPAY' | 'CASHFREE' | 'COD'>('WALLET');
+  const [walletBalance, setWalletBalance] = useState(0);
+
+  React.useEffect(() => {
+    // Fetch wallet balance when screen mounts
+    api.get('/customers/me').then(res => {
+      if (res.data.success && res.data.data.walletBalance) {
+        setWalletBalance(res.data.data.walletBalance);
+      }
+    }).catch(e => console.log('Error fetching wallet', e));
+  }, []);
+
 
   // Fetch estimate only when item details or package type changes (coordinates must already be set)
   React.useEffect(() => {
@@ -117,23 +135,30 @@ export default function CreateOrderScreen({ navigation }: any) {
     }
   };
 
-  const handleCreateOrder = async () => {
+    const handleCreateOrder = async () => {
     if (!formData.pickupAddress || !formData.dropAddress) {
       showSnackbar('Please provide both pickup and drop-off addresses.', 'error');
       return;
     }
+    
+    // Open payment modal instead of directly creating
+    setPaymentModalVisible(true);
+  };
+
+  const processPaymentAndOrder = async () => {
+    setPaymentModalVisible(false);
     setIsLoading(true);
     try {
       const totalWeight = items.reduce((sum, item) => sum + (parseFloat(item.weight) || 0.0) * (parseInt(item.quantity) || 1), 0);
       
       const formattedItemsDesc = items.map(item => 
         `• ${item.name || 'Package'} (${item.quantity}x) — ${item.weight} kg ${item.length ? `(${item.length}x${item.width}x${item.height} cm)` : ''}`
-      ).join('\n');
+      ).join('\\n');
       
       const finalDescription = [
         formattedItemsDesc,
         formData.packageDescription ? `Instructions: ${formData.packageDescription}` : ''
-      ].filter(Boolean).join('\n\n');
+      ].filter(Boolean).join('\\n\\n');
 
       const payload = {
         pickupAddress: formData.pickupAddress,
@@ -156,9 +181,75 @@ export default function CreateOrderScreen({ navigation }: any) {
           quantity: parseInt(item.quantity) || 1
         }))
       };
-      await api.post('/orders', payload);
-      showSnackbar('Delivery booked successfully! 🎉', 'success');
-      setTimeout(() => navigation.navigate('Main', { screen: 'Deliveries' }), 1500);
+      
+      // 1. Create the Order
+      const orderRes = await api.post('/orders', payload);
+      
+      if (orderRes.data.success) {
+        const newOrder = orderRes.data.data;
+        
+        // 2. Process Payment
+        if (selectedPaymentMethod === 'COD') {
+          // COD — no payment needed upfront
+          showSnackbar('Order placed! Pay rider on delivery. 🎉', 'success');
+          setTimeout(() => navigation.navigate('Main', { screen: 'Deliveries' }), 1500);
+        } else {
+          // Gateway or Wallet payment
+          try {
+            // Create payment session
+            const sessionRes = await api.post('/payments/create-session', {
+              orderId: newOrder.orderId,
+              provider: selectedPaymentMethod
+            });
+
+            if (sessionRes.data.success) {
+              const sessionData = sessionRes.data.data;
+
+              if (selectedPaymentMethod === 'RAZORPAY') {
+                // Razorpay Flow
+                const options = {
+                  description: 'Delivery Payment',
+                  image: 'https://i.imgur.com/3g7nmJC.png',
+                  currency: sessionData.currency,
+                  key: sessionData.key,
+                  amount: Math.round(sessionData.amount * 100),
+                  name: 'Smart Dispatch',
+                  order_id: sessionData.paymentSessionId, // Razorpay Order ID
+                  theme: { color: '#0F172A' }
+                };
+
+                RazorpayCheckout.open(options)
+                  .then(async (data: any) => {
+                    // Verify Payment
+                    try {
+                      await api.post('/payments/verify', {
+                        razorpayPaymentId: data.razorpay_payment_id,
+                        razorpayOrderId: data.razorpay_order_id,
+                        razorpaySignature: data.razorpay_signature
+                      });
+                      showSnackbar('Payment verified and confirmed! 🎉', 'success');
+                      setTimeout(() => navigation.navigate('Main', { screen: 'Deliveries' }), 1500);
+                    } catch (verifyErr) {
+                      showSnackbar('Payment verification failed.', 'error');
+                      setTimeout(() => navigation.navigate('Main', { screen: 'Deliveries' }), 2000);
+                    }
+                  })
+                  .catch((error: any) => {
+                    showSnackbar('Payment cancelled or failed.', 'error');
+                    setTimeout(() => navigation.navigate('Main', { screen: 'Deliveries' }), 2000);
+                  });
+              } else {
+                // Wallet flow — instantly deducted
+                showSnackbar('Payment successful! Delivery booked! 🎉', 'success');
+                setTimeout(() => navigation.navigate('Main', { screen: 'Deliveries' }), 1500);
+              }
+            }
+          } catch (paymentErr: any) {
+            console.log('Payment session error', paymentErr);
+            showSnackbar(paymentErr?.response?.data?.message || 'Payment failed.', 'error');
+          }
+        }
+      }
     } catch (error: any) {
       showSnackbar(error?.response?.data?.message || 'Booking failed. Please try again.', 'error');
     } finally {
@@ -277,7 +368,7 @@ export default function CreateOrderScreen({ navigation }: any) {
               </View>
 
               <View style={styles.typeSelector}>
-                {['DOCUMENTS', 'FOOD', 'ELECTRONICS', 'OTHER'].map(type => (
+                {['DOCUMENT', 'FOOD', 'ELECTRONICS', 'OTHER'].map(type => (
                   <TouchableOpacity
                     key={type}
                     style={[styles.typeBadge, formData.packageType === type && styles.typeBadgeActive]}
@@ -347,7 +438,7 @@ export default function CreateOrderScreen({ navigation }: any) {
                       <Text style={{ fontSize: 15, color: '#F59E0B', fontWeight: '600' }}>High Demand Surge</Text>
                       <Text style={{ fontSize: 15, color: '#F59E0B', fontWeight: '700' }}>
                         x{priceEstimate.surgeMultiplier}
-                      </Text>
+           </Text>
                     </View>
                   )}
 
@@ -397,6 +488,106 @@ export default function CreateOrderScreen({ navigation }: any) {
           initialLng={mapType === 'pickup' ? (pickupLng || 77.2090) : (dropLng || 77.2090)}
         />
 
+      
+        <Modal visible={paymentModalVisible} transparent animationType="slide" onRequestClose={() => setPaymentModalVisible(false)}>
+          <View style={styles.modalOverlay}>
+            <View style={styles.paymentModalContainer}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>Select Payment Method</Text>
+                <TouchableOpacity onPress={() => setPaymentModalVisible(false)} style={styles.closeBtn}>
+                  <Text style={{color: '#64748B', fontSize: 20}}>×</Text>
+                </TouchableOpacity>
+              </View>
+              
+              <View style={styles.amountContainer}>
+                <Text style={styles.amountLabel}>Total to Pay</Text>
+                <Text style={styles.amountValue}>{priceEstimate?.currency || '₹'}{priceEstimate?.estimatedFee || '--'}</Text>
+              </View>
+
+              <ScrollView style={{maxHeight: 300, marginBottom: 20}} showsVerticalScrollIndicator={false}>
+                {/* Wallet Option */}
+                <TouchableOpacity 
+                  style={[styles.paymentOption, selectedPaymentMethod === 'WALLET' && styles.paymentOptionActive, walletBalance < (priceEstimate?.estimatedFee || 0) && { opacity: 0.5 }]}
+                  disabled={walletBalance < (priceEstimate?.estimatedFee || 0)}
+                  onPress={() => setSelectedPaymentMethod('WALLET')}
+                >
+                  <View style={[styles.iconCircle, { backgroundColor: '#EFF6FF', width: 44, height: 44, borderRadius: 22 }]}>
+                    <Wallet size={22} color="#3B82F6" />
+                  </View>
+                  <View style={{flex: 1}}>
+                    <Text style={[styles.paymentOptionTitle, selectedPaymentMethod === 'WALLET' && {color: '#3B82F6'}]}>Fatafat Wallet</Text>
+                    <Text style={styles.paymentOptionSub}>Balance: ₹{walletBalance.toFixed(2)}</Text>
+                  </View>
+                  <View style={styles.radioOuter}>
+                    {selectedPaymentMethod === 'WALLET' && <View style={styles.radioInner} />}
+                  </View>
+                </TouchableOpacity>
+
+                {/* Razorpay (Cards/UPI) Option */}
+                <TouchableOpacity 
+                  style={[styles.paymentOption, selectedPaymentMethod === 'RAZORPAY' && styles.paymentOptionActive]}
+                  onPress={() => setSelectedPaymentMethod('RAZORPAY')}
+                >
+                  <View style={[styles.iconCircle, { backgroundColor: '#F0FDF4', width: 44, height: 44, borderRadius: 22 }]}>
+                    <ShieldCheck size={22} color="#10B981" />
+                  </View>
+                  <View style={{flex: 1}}>
+                    <Text style={[styles.paymentOptionTitle, selectedPaymentMethod === 'RAZORPAY' && {color: '#10B981'}]}>Cards / UPI / NetBanking</Text>
+                    <Text style={styles.paymentOptionSub}>Secured by Razorpay</Text>
+                  </View>
+                  <View style={styles.radioOuter}>
+                    {selectedPaymentMethod === 'RAZORPAY' && <View style={styles.radioInner} />}
+                  </View>
+                </TouchableOpacity>
+                
+                {/* Cashfree (Alternative) Option */}
+                <TouchableOpacity 
+                  style={[styles.paymentOption, selectedPaymentMethod === 'CASHFREE' && styles.paymentOptionActive]}
+                  onPress={() => setSelectedPaymentMethod('CASHFREE')}
+                >
+                  <View style={[styles.iconCircle, { backgroundColor: '#FDF4FF', width: 44, height: 44, borderRadius: 22 }]}>
+                    <CreditCard size={22} color="#D946EF" />
+                  </View>
+                  <View style={{flex: 1}}>
+                    <Text style={[styles.paymentOptionTitle, selectedPaymentMethod === 'CASHFREE' && {color: '#D946EF'}]}>Other Payment Modes</Text>
+                    <Text style={styles.paymentOptionSub}>Powered by Cashfree</Text>
+                  </View>
+                  <View style={styles.radioOuter}>
+                    {selectedPaymentMethod === 'CASHFREE' && <View style={styles.radioInner} />}
+                  </View>
+                </TouchableOpacity>
+
+                {/* COD Option */}
+                <TouchableOpacity 
+                  style={[styles.paymentOption, selectedPaymentMethod === 'COD' && styles.paymentOptionActive]}
+                  onPress={() => setSelectedPaymentMethod('COD')}
+                >
+                  <View style={[styles.iconCircle, { backgroundColor: '#FFF7ED', width: 44, height: 44, borderRadius: 22 }]}>
+                    <Banknote size={22} color="#F97316" />
+                  </View>
+                  <View style={{flex: 1}}>
+                    <Text style={[styles.paymentOptionTitle, selectedPaymentMethod === 'COD' && {color: '#F97316'}]}>Cash on Delivery</Text>
+                    <Text style={styles.paymentOptionSub}>Pay rider in cash or UPI</Text>
+                  </View>
+                  <View style={styles.radioOuter}>
+                    {selectedPaymentMethod === 'COD' && <View style={styles.radioInner} />}
+                  </View>
+                </TouchableOpacity>
+              </ScrollView>
+
+              <TouchableOpacity
+                style={styles.payConfirmBtn}
+                onPress={processPaymentAndOrder}
+              >
+                <LinearGradient colors={['#0F172A', '#1E293B']} style={styles.payGradientBtn}>
+                  <Text style={{color: '#FFFFFF', fontSize: 16, fontWeight: '800'}}>Pay & Confirm Order</Text>
+                  <ChevronRight color="#FFFFFF" size={20} />
+                </LinearGradient>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+
       </SafeAreaView>
       <Snackbar
         visible={snackbar.visible}
@@ -443,5 +634,22 @@ const styles = StyleSheet.create({
   buttonText: { color: '#FFFFFF', fontSize: 16, fontWeight: '800' },
   suggestionsCard: { backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#E2E8F0', borderRadius: 12, marginTop: -8, marginBottom: 12, overflow: 'hidden' },
   suggestionItem: { flexDirection: 'row', alignItems: 'center', gap: 8, padding: 12, borderBottomWidth: 1, borderBottomColor: '#F1F5F9' },
-  suggestionText: { flex: 1, fontSize: 13, color: '#334155' }
+    suggestionText: { flex: 1, fontSize: 13, color: '#334155' },
+  
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(15, 23, 42, 0.6)', justifyContent: 'flex-end' },
+  paymentModalContainer: { backgroundColor: '#FFFFFF', borderTopLeftRadius: 32, borderTopRightRadius: 32, padding: 24, paddingBottom: Platform.OS === 'ios' ? 40 : 24, minHeight: 450 },
+  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
+  modalTitle: { fontSize: 20, fontWeight: '800', color: '#0F172A' },
+  closeBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#F1F5F9', justifyContent: 'center', alignItems: 'center' },
+  amountContainer: { alignItems: 'center', paddingVertical: 16, backgroundColor: '#F8FAFC', borderRadius: 16, marginBottom: 24, borderWidth: 1, borderColor: '#F1F5F9' },
+  amountLabel: { fontSize: 14, color: '#64748B', fontWeight: '600', marginBottom: 4 },
+  amountValue: { fontSize: 32, color: '#0F172A', fontWeight: '900' },
+  paymentOption: { flexDirection: 'row', alignItems: 'center', gap: 16, padding: 16, borderRadius: 16, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#E2E8F0', marginBottom: 12 },
+  paymentOptionActive: { borderColor: '#3B82F6', backgroundColor: '#F0F9FF', shadowColor: '#3B82F6', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.1, shadowRadius: 8, elevation: 2 },
+  paymentOptionTitle: { fontSize: 16, fontWeight: '700', color: '#0F172A', marginBottom: 2 },
+  paymentOptionSub: { fontSize: 13, color: '#64748B', fontWeight: '500' },
+  radioOuter: { width: 22, height: 22, borderRadius: 11, borderWidth: 2, borderColor: '#CBD5E1', justifyContent: 'center', alignItems: 'center' },
+  radioInner: { width: 12, height: 12, borderRadius: 6, backgroundColor: '#3B82F6' },
+  payConfirmBtn: { borderRadius: 24, overflow: 'hidden', shadowColor: '#0F172A', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.25, shadowRadius: 16, elevation: 8 },
+  payGradientBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', height: 60, gap: 12 }
 });

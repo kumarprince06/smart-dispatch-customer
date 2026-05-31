@@ -18,20 +18,20 @@ export default function HomeScreen() {
   const slideAnim = useRef(new Animated.Value(30)).current;
   const floatAnim = useRef(new Animated.Value(0)).current;
 
-  useFocusEffect(
-    React.useCallback(() => {
-      api.get('/orders/my-orders?size=1')
-        .then(res => {
-          const content = res.data?.data?.content || [];
-          if (content.length > 0 && ['PENDING', 'ASSIGNED', 'IN_TRANSIT', 'PICKED_UP'].includes(content[0].status)) {
-            setActiveOrder(content[0]);
-          } else {
-            setActiveOrder(null);
-          }
-        })
-        .catch(console.error);
-    }, [])
-  );
+  // useFocusEffect(
+  //   React.useCallback(() => {
+  //     api.get('/orders/my-orders?size=1')
+  //       .then(res => {
+  //         const content = res.data?.data?.content || [];
+  //         if (content.length > 0 && ['PENDING', 'ASSIGNED', 'IN_TRANSIT', 'PICKED_UP'].includes(content[0].status)) {
+  //           setActiveOrder(content[0]);
+  //         } else {
+  //           setActiveOrder(null);
+  //         }
+  //       })
+  //       .catch(console.error);
+  //   }, [])
+  // );
 
   useEffect(() => {
     Animated.parallel([
@@ -130,7 +130,7 @@ export default function HomeScreen() {
               </View>
 
               <Animated.View style={[styles.heroIconWrap, floatingStyle]}>
-                 <Package size={140} color="rgba(255,255,255,0.15)" strokeWidth={1} />
+                <Package size={140} color="rgba(255,255,255,0.15)" strokeWidth={1} />
               </Animated.View>
             </LinearGradient>
           </TouchableOpacity>
