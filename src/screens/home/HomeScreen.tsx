@@ -164,11 +164,11 @@ export default function HomeScreen() {
               <View style={styles.sectionHeader}>
                 <Text style={styles.sectionTitle}>Active Trip</Text>
               </View>
-              <TouchableOpacity style={styles.activeOrderCard} activeOpacity={0.9} onPress={() => (navigation as any).navigate('OrderTracking', { orderId: activeOrder.id })}>
+              <TouchableOpacity style={styles.activeOrderCard} activeOpacity={0.9} onPress={() => (navigation as any).navigate('OrderTracking', { orderId: activeOrder.orderId })}>
                 <View style={styles.orderTop}>
                   <View style={styles.orderIdBadge}>
                     <Package size={14} color="#2563EB" />
-                    <Text style={styles.orderIdText}>#{activeOrder.id.toString().padStart(5, '0')}</Text>
+                    <Text style={styles.orderIdText}>#{activeOrder.trackingNumber ?? '?????'}</Text>
                   </View>
                   <View style={styles.statusPill}>
                     <View style={styles.statusPulse} />
@@ -189,7 +189,7 @@ export default function HomeScreen() {
                     <View style={[styles.dot, { borderColor: '#10B981', backgroundColor: '#10B981' }]} />
                     <View style={styles.timelineContent}>
                       <Text style={styles.timelineLabel}>DROPOFF</Text>
-                      <Text style={styles.timelineAddress} numberOfLines={1}>{activeOrder.dropoffAddress}</Text>
+                      <Text style={styles.timelineAddress} numberOfLines={1}>{activeOrder.dropAddress}</Text>
                     </View>
                   </View>
                 </View>

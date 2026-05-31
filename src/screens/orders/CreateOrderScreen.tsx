@@ -124,6 +124,17 @@ export default function CreateOrderScreen({ navigation }: any) {
     }
     setIsLoading(true);
     try {
+      const totalWeight = items.reduce((sum, item) => sum + (parseFloat(item.weight) || 0.0) * (parseInt(item.quantity) || 1), 0);
+      
+      const formattedItemsDesc = items.map(item => 
+        `• ${item.name || 'Package'} (${item.quantity}x) — ${item.weight} kg ${item.length ? `(${item.length}x${item.width}x${item.height} cm)` : ''}`
+      ).join('\n');
+      
+      const finalDescription = [
+        formattedItemsDesc,
+        formData.packageDescription ? `Instructions: ${formData.packageDescription}` : ''
+      ].filter(Boolean).join('\n\n');
+
       const payload = {
         pickupAddress: formData.pickupAddress,
         pickupLatitude: pickupLat || 0, pickupLongitude: pickupLng || 0,
@@ -132,7 +143,9 @@ export default function CreateOrderScreen({ navigation }: any) {
         dropAddress: formData.dropAddress,
         dropLatitude: dropLat || 0, dropLongitude: dropLng || 0,
         dropContactName: formData.dropContactName, dropContactPhone: formData.dropContactPhone,
-        packageType: formData.packageType, packageDescription: formData.packageDescription,
+        packageType: formData.packageType, 
+        packageDescription: finalDescription,
+        packageWeightKg: totalWeight || 1.0,
         priority: 'STANDARD',
         items: items.map(item => ({
           name: item.name,

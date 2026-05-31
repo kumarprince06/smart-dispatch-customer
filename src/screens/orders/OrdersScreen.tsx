@@ -77,7 +77,7 @@ export default function OrdersScreen() {
       <TouchableOpacity
         style={styles.orderCard}
         activeOpacity={0.9}
-        onPress={() => (navigation as any).navigate('OrderTracking', { orderId: item.trackingNumber })}>
+        onPress={() => (navigation as any).navigate('OrderTracking', { orderId: item.orderId })}>
         <View style={styles.cardHeader}>
           <View style={styles.idBadge}>
             <Package size={14} color="#0F172A" />
