@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, TextInput, ScrollView, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, TextInput, ScrollView, ActivityIndicator, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ArrowLeft, User, Mail, Phone, Camera } from 'lucide-react-native';
 import { useNavigation } from '@react-navigation/native';
@@ -8,19 +8,37 @@ import api from '../../api/axios';
 
 export default function EditProfileScreen() {
   const navigation = useNavigation();
-  const { user } = useAuthStore();
+  const { user, updateUser } = useAuthStore();
   const [firstName, setFirstName] = useState(user?.firstName || '');
   const [lastName, setLastName] = useState(user?.lastName || '');
   const [phone, setPhone] = useState(user?.phoneNo || '');
   const [saving, setSaving] = useState(false);
 
   const handleSave = async () => {
+    if (!firstName.trim() || !lastName.trim() || !phone.trim()) {
+      Alert.alert('Missing Info', 'Please fill in all fields.');
+      return;
+    }
+    
     setSaving(true);
-    // Simulate API call to save profile
-    setTimeout(() => {
+    try {
+      const res = await api.put('/customers/me', {
+        firstName,
+        lastName,
+        phoneNo: phone
+      });
+      
+      if (res.data.success) {
+        await updateUser({ firstName, lastName, phoneNo: phone });
+        Alert.alert('Success', 'Profile updated successfully!', [
+          { text: 'OK', onPress: () => navigation.goBack() }
+        ]);
+      }
+    } catch (error: any) {
+      Alert.alert('Update Failed', error?.response?.data?.message || 'Something went wrong.');
+    } finally {
       setSaving(false);
-      navigation.goBack();
-    }, 1000);
+    }
   };
 
   return (

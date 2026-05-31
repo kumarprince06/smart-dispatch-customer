@@ -1,20 +1,67 @@
-import React, { useRef, useMemo } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Dimensions, Image } from 'react-native';
+import React, { useRef, useMemo, useState, useEffect } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, Dimensions, Alert, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { ArrowLeft, Phone, MessageCircle, MapPin, Package, Clock, ShieldCheck, Navigation } from 'lucide-react-native';
+import { ArrowLeft, Phone, MessageCircle, MapPin, Package, Clock, ShieldCheck, Navigation, XCircle } from 'lucide-react-native';
 import BottomSheet from '@gorhom/bottom-sheet';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
+import api from '../../api/axios';
 
 const { width, height } = Dimensions.get('window');
 
 export default function OrderTrackingScreen() {
   const navigation = useNavigation();
   const route = useRoute();
-  const orderId = (route.params as any)?.orderId || '10234';
+  const orderId = (route.params as any)?.orderId || '1';
+  const [cancelling, setCancelling] = useState(false);
+  const [orderData, setOrderData] = useState<any>(null);
+
+  useEffect(() => {
+    const fetchOrder = async () => {
+      try {
+        const res = await api.get(`/orders/${orderId}`);
+        if (res.data.success) {
+          setOrderData(res.data.data);
+        }
+      } catch (e) {
+        console.log('Failed to fetch order tracking details', e);
+      }
+    };
+
+    fetchOrder();
+    // Poll every 10 seconds for real-time tracking
+    const interval = setInterval(fetchOrder, 10000);
+    return () => clearInterval(interval);
+  }, [orderId]);
 
   const bottomSheetRef = useRef<BottomSheet>(null);
-  const snapPoints = useMemo(() => ['40%', '75%'], []);
+  const snapPoints = useMemo(() => ['40%', '85%'], []);
+
+  const handleCancelOrder = () => {
+    Alert.alert(
+      'Cancel Order',
+      'Are you sure you want to cancel this delivery? Cancellation fees may apply.',
+      [
+        { text: 'Keep Order', style: 'cancel' },
+        { 
+          text: 'Yes, Cancel', 
+          style: 'destructive',
+          onPress: async () => {
+            setCancelling(true);
+            try {
+              await api.post(`/orders/${orderId}/cancel`, { reason: 'Customer requested cancellation' });
+              Alert.alert('Order Cancelled', 'Your delivery has been cancelled successfully.');
+              navigation.goBack();
+            } catch (error: any) {
+              Alert.alert('Failed to Cancel', error?.response?.data?.message || 'Something went wrong.');
+            } finally {
+              setCancelling(false);
+            }
+          }
+        }
+      ]
+    );
+  };
 
   return (
     <View style={styles.container}>
@@ -59,17 +106,19 @@ export default function OrderTrackingScreen() {
       >
         <View style={styles.sheetContent}>
           <View style={styles.timeEstContainer}>
-            <Text style={styles.timeLabel}>Arriving in</Text>
-            <Text style={styles.timeValue}>12 mins</Text>
+            <Text style={styles.timeLabel}>Status</Text>
+            <Text style={[styles.timeValue, { fontSize: 24 }]}>
+              {orderData?.status ? orderData.status.replace('_', ' ') : 'Locating Driver...'}
+            </Text>
           </View>
 
           <View style={styles.driverCard}>
             <View style={styles.driverAvatar}>
-              <Text style={styles.avatarText}>R</Text>
+              <Text style={styles.avatarText}>{orderData?.driverName ? orderData.driverName[0] : '?'}</Text>
             </View>
             <View style={styles.driverInfo}>
-              <Text style={styles.driverName}>Raju Kumar</Text>
-              <Text style={styles.driverRating}>⭐️ 4.8 • KA 01 AB 1234</Text>
+              <Text style={styles.driverName}>{orderData?.driverName || 'Assigning Rider...'}</Text>
+              <Text style={styles.driverRating}>⭐️ {orderData?.driverRating || 'New'} • {orderData?.vehicleNumber || 'Wait'}</Text>
             </View>
             <View style={styles.actionRow}>
               <TouchableOpacity style={styles.actionBtn}>
@@ -85,8 +134,8 @@ export default function OrderTrackingScreen() {
 
           <View style={styles.orderDetailCard}>
             <View style={styles.orderTop}>
-              <Text style={styles.orderId}>Order #{orderId}</Text>
-              <Text style={styles.feeText}>₹150</Text>
+              <Text style={styles.orderId}>Order #{orderData?.id || orderId}</Text>
+              <Text style={styles.feeText}>₹{orderData?.deliveryFee?.toFixed(0) || '--'}</Text>
             </View>
 
             <View style={styles.timeline}>
@@ -94,7 +143,7 @@ export default function OrderTrackingScreen() {
                 <View style={[styles.dot, { borderColor: '#38BDF8' }]} />
                 <View style={styles.timelineContent}>
                   <Text style={styles.timelineLabel}>PICKUP</Text>
-                  <Text style={styles.timelineAddress} numberOfLines={1}>123 Tech Park, Block A</Text>
+                  <Text style={styles.timelineAddress} numberOfLines={1}>{orderData?.pickupAddress || 'Loading...'}</Text>
                 </View>
               </View>
               <View style={styles.timelineLine} />
@@ -102,11 +151,22 @@ export default function OrderTrackingScreen() {
                 <View style={[styles.dot, { borderColor: '#10B981', backgroundColor: '#10B981' }]} />
                 <View style={styles.timelineContent}>
                   <Text style={styles.timelineLabel}>DROPOFF</Text>
-                  <Text style={styles.timelineAddress} numberOfLines={1}>456 Residency, HSR Layout</Text>
+                  <Text style={styles.timelineAddress} numberOfLines={1}>{orderData?.dropoffAddress || 'Loading...'}</Text>
                 </View>
               </View>
             </View>
           </View>
+
+          <TouchableOpacity style={styles.cancelBtn} onPress={handleCancelOrder} disabled={cancelling}>
+            {cancelling ? (
+              <ActivityIndicator color="#EF4444" />
+            ) : (
+              <>
+                <XCircle size={20} color="#EF4444" />
+                <Text style={styles.cancelBtnText}>Cancel Delivery</Text>
+              </>
+            )}
+          </TouchableOpacity>
 
         </View>
       </BottomSheet>
@@ -162,4 +222,7 @@ const styles = StyleSheet.create({
   timelineLabel: { fontSize: 10, fontWeight: '800', color: '#94A3B8', letterSpacing: 1, marginBottom: 4 },
   timelineAddress: { fontSize: 15, fontWeight: '700', color: '#0F172A', lineHeight: 20 },
   timelineLine: { width: 2, height: 32, backgroundColor: '#E2E8F0', marginLeft: 6, marginVertical: 2 },
+
+  cancelBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 24, paddingVertical: 16, borderRadius: 16, backgroundColor: '#FEF2F2', borderWidth: 1, borderColor: '#FEE2E2' },
+  cancelBtnText: { fontSize: 15, fontWeight: '800', color: '#EF4444' }
 });

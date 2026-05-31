@@ -10,9 +10,10 @@ interface AuthState {
   register: (data: any) => Promise<void>;
   logout: () => Promise<void>;
   loadToken: () => Promise<boolean>;
+  updateUser: (userData: any) => Promise<void>;
 }
 
-export const useAuthStore = create<AuthState>((set) => ({
+export const useAuthStore = create<AuthState>((set, get) => ({
   token: null,
   user: null,
   isLoading: false,
@@ -82,5 +83,12 @@ export const useAuthStore = create<AuthState>((set) => ({
       set({ token: null, user: null });
       return false;
     }
+  },
+
+  updateUser: async (userData: any) => {
+    const currentUser = get().user;
+    const updatedUser = { ...currentUser, ...userData };
+    await AsyncStorage.setItem('auth_user', JSON.stringify(updatedUser));
+    set({ user: updatedUser });
   },
 }));

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, FlatList, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, FlatList, ActivityIndicator, Modal, TextInput, KeyboardAvoidingView, Platform, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ArrowLeft, MapPin, Plus, Home, Briefcase, MoreVertical } from 'lucide-react-native';
 import { useNavigation } from '@react-navigation/native';
@@ -16,22 +16,53 @@ export default function SavedAddressesScreen() {
   const navigation = useNavigation();
   const [addresses, setAddresses] = useState<Address[]>([]);
   const [loading, setLoading] = useState(true);
+  const [modalVisible, setModalVisible] = useState(false);
+  const [newLabel, setNewLabel] = useState('Home');
+  const [newAddress, setNewAddress] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const fetchAddresses = async () => {
+    try {
+      const res = await api.get('/addresses');
+      if (res.data.success) {
+        setAddresses(res.data.data || []);
+      }
+    } catch (e) {
+      console.log('Failed to fetch addresses', e);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    const fetchAddresses = async () => {
-      try {
-        const res = await api.get('/addresses');
-        if (res.data.success) {
-          setAddresses(res.data.data || []);
-        }
-      } catch (e) {
-        console.log('Failed to fetch addresses', e);
-      } finally {
-        setLoading(false);
-      }
-    };
     fetchAddresses();
   }, []);
+
+  const handleAddAddress = async () => {
+    if (!newAddress.trim()) {
+      Alert.alert('Missing Info', 'Please enter an address');
+      return;
+    }
+    setSaving(true);
+    try {
+      const res = await api.post('/addresses', {
+        label: newLabel,
+        addressLine1: newAddress,
+        latitude: 28.6139,
+        longitude: 77.2090,
+        isDefault: addresses.length === 0
+      });
+      if (res.data.success) {
+        setModalVisible(false);
+        setNewAddress('');
+        fetchAddresses();
+      }
+    } catch (error: any) {
+      Alert.alert('Failed to save', error?.response?.data?.message || 'Something went wrong');
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
@@ -40,7 +71,7 @@ export default function SavedAddressesScreen() {
           <ArrowLeft size={24} color="#0F172A" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Saved Addresses</Text>
-        <TouchableOpacity style={styles.addBtn}>
+        <TouchableOpacity style={styles.addBtn} onPress={() => setModalVisible(true)}>
           <Plus size={24} color="#FFFFFF" />
         </TouchableOpacity>
       </View>
@@ -75,6 +106,40 @@ export default function SavedAddressesScreen() {
           )}
         />
       )}
+
+      <Modal visible={modalVisible} transparent animationType="slide">
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Add New Address</Text>
+            
+            <View style={styles.labelSelector}>
+              {['Home', 'Office', 'Other'].map(l => (
+                <TouchableOpacity key={l} style={[styles.labelBadge, newLabel === l && styles.labelBadgeActive]} onPress={() => setNewLabel(l)}>
+                  <Text style={[styles.labelText, newLabel === l && styles.labelTextActive]}>{l}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <TextInput
+              style={styles.input}
+              placeholder="Enter full address"
+              placeholderTextColor="#94A3B8"
+              value={newAddress}
+              onChangeText={setNewAddress}
+              multiline
+            />
+
+            <View style={styles.modalActions}>
+              <TouchableOpacity style={styles.cancelBtn} onPress={() => setModalVisible(false)} disabled={saving}>
+                <Text style={styles.cancelBtnText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.saveBtn} onPress={handleAddAddress} disabled={saving}>
+                {saving ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.saveBtnText}>Save Address</Text>}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -91,5 +156,20 @@ const styles = StyleSheet.create({
   content: { flex: 1, marginRight: 12 },
   title: { fontSize: 16, fontWeight: '800', color: '#0F172A', marginBottom: 4 },
   address: { fontSize: 13, color: '#64748B', fontWeight: '500', lineHeight: 20 },
-  moreBtn: { width: 40, height: 40, justifyContent: 'center', alignItems: 'flex-end' }
+  moreBtn: { width: 40, height: 40, justifyContent: 'center', alignItems: 'flex-end' },
+
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(15,23,42,0.5)', justifyContent: 'flex-end' },
+  modalContent: { backgroundColor: '#FFFFFF', borderTopLeftRadius: 32, borderTopRightRadius: 32, padding: 24, paddingBottom: 40 },
+  modalTitle: { fontSize: 20, fontWeight: '800', color: '#0F172A', marginBottom: 20 },
+  labelSelector: { flexDirection: 'row', gap: 12, marginBottom: 20 },
+  labelBadge: { paddingHorizontal: 20, paddingVertical: 10, borderRadius: 20, backgroundColor: '#F1F5F9', borderWidth: 1, borderColor: '#E2E8F0' },
+  labelBadgeActive: { backgroundColor: '#0F172A', borderColor: '#0F172A' },
+  labelText: { fontSize: 14, fontWeight: '700', color: '#64748B' },
+  labelTextActive: { color: '#FFFFFF' },
+  input: { backgroundColor: '#F8FAFC', borderWidth: 1, borderColor: '#E2E8F0', borderRadius: 16, padding: 16, height: 100, fontSize: 15, color: '#0F172A', textAlignVertical: 'top', marginBottom: 24 },
+  modalActions: { flexDirection: 'row', gap: 16 },
+  cancelBtn: { flex: 1, height: 56, borderRadius: 16, backgroundColor: '#F1F5F9', justifyContent: 'center', alignItems: 'center' },
+  cancelBtnText: { fontSize: 16, fontWeight: '700', color: '#64748B' },
+  saveBtn: { flex: 2, height: 56, borderRadius: 16, backgroundColor: '#0F172A', justifyContent: 'center', alignItems: 'center' },
+  saveBtnText: { fontSize: 16, fontWeight: '700', color: '#FFFFFF' }
 });
