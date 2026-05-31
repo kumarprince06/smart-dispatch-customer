@@ -4,8 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { ArrowLeft, MapPin, Plus, Home, Briefcase, MoreVertical } from 'lucide-react-native';
 import { useNavigation } from '@react-navigation/native';
 import api from '../../api/axios';
-import { WebView } from 'react-native-webview';
-import * as Location from 'expo-location';
+import LocationPickerModal from '../../components/LocationPickerModal';
 
 export interface Address {
   id: number;
@@ -19,69 +18,14 @@ export default function SavedAddressesScreen() {
   const [addresses, setAddresses] = useState<Address[]>([]);
   const [loading, setLoading] = useState(true);
   const [modalVisible, setModalVisible] = useState(false);
+  const [mapModalVisible, setMapModalVisible] = useState(false);
   const [newLabel, setNewLabel] = useState('Home');
-  const [newAddress, setNewAddress] = useState('');
   const [saving, setSaving] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [isLocating, setIsLocating] = useState(false);
   
   // Default coordinates (Delhi)
   const [lat, setLat] = useState(28.6139);
   const [lng, setLng] = useState(77.2090);
-
-  // Use useMemo to prevent the map HTML from completely reloading on every single pin drag
-  const mapHtml = React.useMemo(() => {
-    return `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-        <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-        <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-        <style>
-          body { padding: 0; margin: 0; }
-          html, body, #map { height: 100%; width: 100%; }
-          .custom-marker { display: flex; justify-content: center; align-items: center; }
-          .pin {
-            width: 24px; height: 24px; background-color: #0F172A;
-            border-radius: 12px 12px 12px 0; transform: rotate(-45deg);
-            border: 3px solid white; box-shadow: 0 4px 6px rgba(0,0,0,0.3);
-          }
-        </style>
-      </head>
-      <body>
-        <div id="map"></div>
-        <script>
-          var map = L.map('map', {zoomControl: false}).setView([${lat}, ${lng}], 15);
-          L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-            attribution: ''
-          }).addTo(map);
-          
-          var customIcon = L.divIcon({
-            className: 'custom-marker',
-            html: '<div class="pin"></div>',
-            iconSize: [24, 24],
-            iconAnchor: [12, 24]
-          });
-          
-          var marker = L.marker([${lat}, ${lng}], {icon: customIcon, draggable: true}).addTo(map);
-          
-          map.on('move', function () {
-            marker.setLatLng(map.getCenter());
-          });
-          
-          map.on('moveend', function () {
-            var center = map.getCenter();
-            window.ReactNativeWebView.postMessage(JSON.stringify({
-              lat: center.lat,
-              lng: center.lng
-            }));
-          });
-        </script>
-      </body>
-      </html>
-    `;
-  }, [modalVisible, isLocating]); // Re-generate only when modal opens or when locating finishes!
 
   const fetchAddresses = async () => {
     try {
@@ -106,67 +50,8 @@ export default function SavedAddressesScreen() {
     setRefreshing(false);
   }, []);
 
-  const openAddModal = async () => {
+  const openAddModal = () => {
     setModalVisible(true);
-    setIsLocating(true);
-    setNewAddress('Fetching location...');
-    try {
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status === 'granted') {
-        const location = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
-        const currentLat = location.coords.latitude;
-        const currentLng = location.coords.longitude;
-        setLat(currentLat);
-        setLng(currentLng);
-        
-        // REVERSE GEOCODING: Convert Lat/Lng to Text Address
-        const geocode = await Location.reverseGeocodeAsync({
-          latitude: currentLat,
-          longitude: currentLng
-        });
-        
-        if (geocode && geocode.length > 0) {
-          const place = geocode[0];
-          const readableAddress = `${place.street || place.name || ''}, ${place.city || ''}, ${place.region || ''} ${place.postalCode || ''}`.replace(/^[,\s]+|[,\s]+$/g, '').trim();
-          setNewAddress(readableAddress);
-        } else {
-          setNewAddress('');
-        }
-      } else {
-        setNewAddress('');
-      }
-    } catch (e) {
-      console.log('Location permission failed', e);
-      setNewAddress('');
-    } finally {
-      setIsLocating(false);
-    }
-  };
-
-  const handleAddAddress = async () => {
-    if (!newAddress.trim()) {
-      Alert.alert('Missing Info', 'Please enter an address');
-      return;
-    }
-    setSaving(true);
-    try {
-      const res = await api.post('/addresses', {
-        label: newLabel,
-        fullAddress: newAddress,
-        latitude: lat,
-        longitude: lng,
-        isDefault: addresses.length === 0
-      });
-      if (res.data.success) {
-        setModalVisible(false);
-        setNewAddress('');
-        fetchAddresses();
-      }
-    } catch (error: any) {
-      Alert.alert('Failed to save', error?.response?.data?.message || 'Something went wrong');
-    } finally {
-      setSaving(false);
-    }
   };
 
   return (
@@ -228,64 +113,51 @@ export default function SavedAddressesScreen() {
               ))}
             </View>
 
-            <TextInput
-              style={styles.input}
-              placeholder="Enter full address"
-              placeholderTextColor="#94A3B8"
-              value={newAddress}
-              onChangeText={setNewAddress}
-              multiline
-            />
-
-            <View style={styles.mapWrap}>
-              {isLocating ? (
-                <View style={{ flex: 1, backgroundColor: '#F8FAFC', justifyContent: 'center', alignItems: 'center' }}>
-                  <ActivityIndicator size="large" color="#0F172A" />
-                  <Text style={{ marginTop: 12, color: '#64748B', fontWeight: '600' }}>Pinpointing your location...</Text>
-                </View>
-              ) : (
-                <>
-                  <WebView
-                    source={{ html: mapHtml }}
-                    style={{ flex: 1 }}
-                    scrollEnabled={false}
-                    onMessage={async (event) => {
-                      try {
-                        const data = JSON.parse(event.nativeEvent.data);
-                        setLat(data.lat);
-                        setLng(data.lng);
-                        
-                        const geocode = await Location.reverseGeocodeAsync({
-                          latitude: data.lat,
-                          longitude: data.lng
-                        });
-                        
-                        if (geocode && geocode.length > 0) {
-                          const place = geocode[0];
-                          const readableAddress = `${place.street || place.name || ''}, ${place.city || ''}, ${place.region || ''} ${place.postalCode || ''}`.replace(/^[,\s]+|[,\s]+$/g, '').trim();
-                          setNewAddress(readableAddress);
-                        }
-                      } catch (e) {}
-                    }}
-                  />
-                  <View style={styles.mapOverlayTextWrap}>
-                    <Text style={styles.mapOverlayText}>Drag map to pin location</Text>
-                  </View>
-                </>
-              )}
-            </View>
-
             <View style={styles.modalActions}>
               <TouchableOpacity style={styles.cancelBtn} onPress={() => setModalVisible(false)} disabled={saving}>
                 <Text style={styles.cancelBtnText}>Cancel</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.saveBtn} onPress={handleAddAddress} disabled={saving}>
-                {saving ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.saveBtnText}>Save Address</Text>}
+              <TouchableOpacity style={styles.saveBtn} onPress={() => {
+                setModalVisible(false);
+                setTimeout(() => setMapModalVisible(true), 300); // Wait for first modal to close
+              }} disabled={saving}>
+                {saving ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.saveBtnText}>Continue to Map</Text>}
               </TouchableOpacity>
             </View>
           </View>
         </KeyboardAvoidingView>
       </Modal>
+
+      <LocationPickerModal
+        visible={mapModalVisible}
+        onClose={() => setMapModalVisible(false)}
+        title={`Set ${newLabel} Location`}
+        onConfirm={async (address, lat, lng) => {
+          if (!address) {
+            Alert.alert('Error', 'Please wait for the location to load.');
+            return;
+          }
+          setMapModalVisible(false);
+          setSaving(true);
+          try {
+            const res = await api.post('/addresses', {
+              label: newLabel,
+              fullAddress: address,
+              latitude: lat,
+              longitude: lng,
+              isDefault: addresses.length === 0
+            });
+            if (res.data.success) {
+              fetchAddresses();
+            }
+          } catch (e: any) {
+            Alert.alert('Error', e.response?.data?.message || 'Failed to add address');
+          } finally {
+            setSaving(false);
+          }
+        }}
+      />
+
     </SafeAreaView>
   );
 }
@@ -312,11 +184,6 @@ const styles = StyleSheet.create({
   labelBadgeActive: { backgroundColor: '#0F172A', borderColor: '#0F172A' },
   labelText: { fontSize: 14, fontWeight: '700', color: '#64748B' },
   labelTextActive: { color: '#FFFFFF' },
-  input: { backgroundColor: '#F8FAFC', borderWidth: 1, borderColor: '#E2E8F0', borderRadius: 16, padding: 16, height: 80, fontSize: 15, color: '#0F172A', textAlignVertical: 'top', marginBottom: 16 },
-  
-  mapWrap: { height: 320, borderRadius: 16, overflow: 'hidden', marginBottom: 24, borderWidth: 1, borderColor: '#E2E8F0', position: 'relative' },
-  mapOverlayTextWrap: { position: 'absolute', top: 12, alignSelf: 'center', backgroundColor: '#0F172A', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 12 },
-  mapOverlayText: { color: '#FFFFFF', fontSize: 12, fontWeight: '700' },
   
   modalActions: { flexDirection: 'row', gap: 16 },
   cancelBtn: { flex: 1, height: 56, borderRadius: 16, backgroundColor: '#F1F5F9', justifyContent: 'center', alignItems: 'center' },

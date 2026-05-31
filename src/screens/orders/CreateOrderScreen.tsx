@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, TextInput, ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView, Alert, Dimensions } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, TextInput, ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView, Alert, Dimensions, Modal } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { ArrowLeft, MapPin, Package, CheckCircle, Navigation, Info, ChevronRight } from 'lucide-react-native';
+import { ArrowLeft, MapPin, Package, CheckCircle, Navigation, Info, ChevronRight, Map } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import api from '../../api/axios';
+import LocationPickerModal from '../../components/LocationPickerModal';
 
 const { width } = Dimensions.get('window');
 
@@ -19,6 +20,10 @@ export default function CreateOrderScreen({ navigation }: any) {
 
   const [pickupSuggestions, setPickupSuggestions] = useState<any[]>([]);
   const [dropSuggestions, setDropSuggestions] = useState<any[]>([]);
+  
+  // Map Modal State
+  const [mapModalVisible, setMapModalVisible] = useState(false);
+  const [mapType, setMapType] = useState<'pickup' | 'drop'>('pickup');
   
   const [formData, setFormData] = useState({
     pickupAddress: '',
@@ -105,6 +110,24 @@ export default function CreateOrderScreen({ navigation }: any) {
     }
   };
 
+  const openMapSelector = (type: 'pickup' | 'drop') => {
+    setMapType(type);
+    setMapModalVisible(true);
+  };
+
+  const confirmMapSelection = (address: string, lat: number, lng: number) => {
+    if (mapType === 'pickup') {
+      setFormData({ ...formData, pickupAddress: address });
+      setPickupLat(lat);
+      setPickupLng(lng);
+    } else {
+      setFormData({ ...formData, dropAddress: address });
+      setDropLat(lat);
+      setDropLng(lng);
+    }
+    setMapModalVisible(false);
+  };
+
   return (
     <View style={styles.container}>
       <SafeAreaView edges={['top']} style={{ flex: 1 }}>
@@ -129,7 +152,12 @@ export default function CreateOrderScreen({ navigation }: any) {
                   </View>
                   <Text style={styles.cardTitle}>Pickup Details</Text>
                 </View>
-                <TextInput style={styles.input} placeholder="Search Pickup Address" placeholderTextColor="#94A3B8" value={formData.pickupAddress} onChangeText={(t) => searchAddress(t, true)} />
+                <View style={[styles.input, { padding: 0, paddingHorizontal: 16, flexDirection: 'row', alignItems: 'center' }]}>
+                  <TextInput style={{ flex: 1, height: '100%', fontSize: 15, color: '#0F172A' }} placeholder="Search Pickup Address" placeholderTextColor="#94A3B8" value={formData.pickupAddress} onChangeText={(t) => searchAddress(t, true)} />
+                  <TouchableOpacity onPress={() => openMapSelector('pickup')} style={{ padding: 8, backgroundColor: '#EFF6FF', borderRadius: 8, marginLeft: 8 }}>
+                    <Map size={18} color="#3B82F6" />
+                  </TouchableOpacity>
+                </View>
                 {pickupSuggestions.length > 0 && (
                   <View style={styles.suggestionsCard}>
                     {pickupSuggestions.map((item, idx) => (
@@ -158,7 +186,12 @@ export default function CreateOrderScreen({ navigation }: any) {
                   </View>
                   <Text style={styles.cardTitle}>Drop-off Details</Text>
                 </View>
-                <TextInput style={styles.input} placeholder="Search Drop-off Address" placeholderTextColor="#94A3B8" value={formData.dropAddress} onChangeText={(t) => searchAddress(t, false)} />
+                <View style={[styles.input, { padding: 0, paddingHorizontal: 16, flexDirection: 'row', alignItems: 'center' }]}>
+                  <TextInput style={{ flex: 1, height: '100%', fontSize: 15, color: '#0F172A' }} placeholder="Search Drop-off Address" placeholderTextColor="#94A3B8" value={formData.dropAddress} onChangeText={(t) => searchAddress(t, false)} />
+                  <TouchableOpacity onPress={() => openMapSelector('drop')} style={{ padding: 8, backgroundColor: '#FEF2F2', borderRadius: 8, marginLeft: 8 }}>
+                    <Map size={18} color="#EF4444" />
+                  </TouchableOpacity>
+                </View>
                 {dropSuggestions.length > 0 && (
                   <View style={styles.suggestionsCard}>
                     {dropSuggestions.map((item, idx) => (
@@ -251,23 +284,32 @@ export default function CreateOrderScreen({ navigation }: any) {
             </LinearGradient>
           </TouchableOpacity>
         </View>
+
+        <LocationPickerModal
+          visible={mapModalVisible}
+          onClose={() => setMapModalVisible(false)}
+          onConfirm={confirmMapSelection}
+          title={mapType === 'pickup' ? "Set Pickup Location" : "Set Drop-off Location"}
+        />
+
       </SafeAreaView>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#FAFAFA' },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 12, backgroundColor: '#FAFAFA' },
-  backButton: { width: 44, height: 44, borderRadius: 22, backgroundColor: '#F1F5F9', justifyContent: 'center', alignItems: 'center' },
-  headerTitle: { fontSize: 18, fontWeight: '900', color: '#0F172A' },
+  container: { flex: 1, backgroundColor: '#FFFFFF' },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 24, paddingVertical: 16, backgroundColor: '#FFFFFF' },
+  backButton: { width: 44, height: 44, borderRadius: 22, backgroundColor: '#F8FAFC', justifyContent: 'center', alignItems: 'center' },
+  headerTitle: { fontSize: 20, fontWeight: '800', color: '#0F172A' },
+  
   scrollContent: { padding: 24, paddingBottom: 40 },
   
   timelineContainer: { position: 'relative' },
-  timelineLine: { position: 'absolute', left: 40, top: 40, bottom: 40, width: 2, backgroundColor: '#E2E8F0', borderStyle: 'dashed', zIndex: 0 },
+  timelineLine: { position: 'absolute', left: 45, top: 40, bottom: 40, width: 2, backgroundColor: '#E2E8F0', zIndex: -1 },
   
-  card: { backgroundColor: '#FFFFFF', borderRadius: 28, padding: 20, marginBottom: 16, elevation: 6, shadowColor: '#94A3B8', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.15, shadowRadius: 20, zIndex: 1 },
-  cardHeader: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 20 },
+  card: { backgroundColor: '#FFFFFF', borderRadius: 24, padding: 20, marginBottom: 16, borderWidth: 1, borderColor: '#F1F5F9', shadowColor: '#0F172A', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.04, shadowRadius: 16, elevation: 3 },
+  cardHeader: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 16 },
   iconCircle: { width: 36, height: 36, borderRadius: 18, justifyContent: 'center', alignItems: 'center' },
   cardTitle: { fontSize: 16, fontWeight: '800', color: '#0F172A' },
   
