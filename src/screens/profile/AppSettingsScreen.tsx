@@ -35,7 +35,7 @@ export default function AppSettingsScreen() {
   useEffect(() => {
     const fetchSettings = async () => {
       try {
-        const res = await api.get('/settings/public');
+        const res = await api.get('/app-settings/public');
         if (res.data.success) {
           setServerSettings(res.data.data || []);
         }
