@@ -1,14 +1,76 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Switch, ScrollView } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, Switch, ScrollView, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { ArrowLeft, Bell, Moon, Globe, Shield, Smartphone } from 'lucide-react-native';
+import { ArrowLeft, Bell, Moon, Globe, Shield, Smartphone, Settings } from 'lucide-react-native';
 import { useNavigation } from '@react-navigation/native';
+import api from '../../api/axios';
+import { CustomAlert } from '../../components/common/CustomAlert';
+import { useAuthStore } from '../../store/authStore';
 
 export default function AppSettingsScreen() {
   const navigation = useNavigation();
-  const [pushNotif, setPushNotif] = useState(true);
-  const [smsNotif, setSmsNotif] = useState(false);
-  const [darkMode, setDarkMode] = useState(false);
+  const { user, updateUser } = useAuthStore();
+  
+  const [pushNotif, setPushNotif] = useState(user?.notificationsEnabled !== false);
+  const [smsNotif, setSmsNotif] = useState(user?.smsEnabled !== false);
+  const [darkMode, setDarkMode] = useState(user?.darkMode === true);
+  
+  const [serverSettings, setServerSettings] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  // Custom Alert state
+  const [alertVisible, setAlertVisible] = useState(false);
+  const [alertConfig, setAlertConfig] = useState<any>({ title: '', message: '', type: 'info', buttons: [] });
+
+  const showAlert = (title: string, message: string, type: 'info' | 'error' | 'logout' = 'info', buttons?: any[]) => {
+    setAlertConfig({
+      title,
+      message,
+      type,
+      buttons: buttons || [{ text: 'OK', onPress: () => setAlertVisible(false) }]
+    });
+    setAlertVisible(true);
+  };
+
+  useEffect(() => {
+    const fetchSettings = async () => {
+      try {
+        const res = await api.get('/settings/public');
+        if (res.data.success) {
+          setServerSettings(res.data.data || []);
+        }
+      } catch (e) {
+        console.log('Failed to fetch app settings from backend', e);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchSettings();
+  }, []);
+
+  const updatePreference = async (key: string, value: boolean) => {
+    try {
+      if (key === 'push') setPushNotif(value);
+      if (key === 'sms') setSmsNotif(value);
+      if (key === 'dark') setDarkMode(value);
+
+      const payload: any = {};
+      if (key === 'push') payload.notificationsEnabled = value;
+      if (key === 'sms') payload.smsEnabled = value;
+      if (key === 'dark') payload.darkMode = value;
+
+      const res = await api.put('/customers/preferences', payload);
+      if (res.data.success) {
+        await updateUser(payload);
+      }
+    } catch (e) {
+      console.log('Failed to update preference', e);
+      // Revert on failure
+      if (key === 'push') setPushNotif(!value);
+      if (key === 'sms') setSmsNotif(!value);
+      if (key === 'dark') setDarkMode(!value);
+    }
+  };
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
@@ -28,7 +90,7 @@ export default function AppSettingsScreen() {
               <Bell size={20} color="#64748B" />
               <Text style={styles.rowLabel}>Push Notifications</Text>
             </View>
-            <Switch value={pushNotif} onValueChange={setPushNotif} trackColor={{ true: '#10B981', false: '#E2E8F0' }} />
+            <Switch value={pushNotif} onValueChange={(v) => updatePreference('push', v)} trackColor={{ true: '#10B981', false: '#E2E8F0' }} />
           </View>
           <View style={styles.divider} />
           <View style={styles.row}>
@@ -36,7 +98,7 @@ export default function AppSettingsScreen() {
               <Smartphone size={20} color="#64748B" />
               <Text style={styles.rowLabel}>SMS Alerts</Text>
             </View>
-            <Switch value={smsNotif} onValueChange={setSmsNotif} trackColor={{ true: '#10B981', false: '#E2E8F0' }} />
+            <Switch value={smsNotif} onValueChange={(v) => updatePreference('sms', v)} trackColor={{ true: '#10B981', false: '#E2E8F0' }} />
           </View>
         </View>
 
@@ -47,7 +109,7 @@ export default function AppSettingsScreen() {
               <Globe size={20} color="#64748B" />
               <Text style={styles.rowLabel}>Language</Text>
             </View>
-            <Text style={styles.rowValue}>English</Text>
+            <Text style={styles.rowValue}>{user?.preferredLanguage || 'English'}</Text>
           </TouchableOpacity>
           <View style={styles.divider} />
           <View style={styles.row}>
@@ -55,9 +117,31 @@ export default function AppSettingsScreen() {
               <Moon size={20} color="#64748B" />
               <Text style={styles.rowLabel}>Dark Mode</Text>
             </View>
-            <Switch value={darkMode} onValueChange={setDarkMode} trackColor={{ true: '#10B981', false: '#E2E8F0' }} />
+            <Switch value={darkMode} onValueChange={(v) => updatePreference('dark', v)} trackColor={{ true: '#10B981', false: '#E2E8F0' }} />
           </View>
         </View>
+
+        {serverSettings.length > 0 && (
+          <>
+            <Text style={styles.sectionTitle}>Global Configurations</Text>
+            <View style={styles.card}>
+              {serverSettings.map((setting, index) => (
+                <View key={setting.key}>
+                  <TouchableOpacity style={styles.rowAction} onPress={() => {
+                    showAlert(setting.key, `${setting.description}\n\nCurrent Value: ${setting.value}`);
+                  }}>
+                    <View style={styles.rowLeft}>
+                      <Settings size={20} color="#64748B" />
+                      <Text style={styles.rowLabel}>{setting.key.replace(/_/g, ' ')}</Text>
+                    </View>
+                    <Text style={styles.rowValue} numberOfLines={1}>{setting.value.substring(0, 15)}{setting.value.length > 15 ? '...' : ''}</Text>
+                  </TouchableOpacity>
+                  {index < serverSettings.length - 1 && <View style={styles.divider} />}
+                </View>
+              ))}
+            </View>
+          </>
+        )}
 
         <Text style={styles.sectionTitle}>Privacy & Security</Text>
         <View style={styles.card}>
@@ -69,6 +153,15 @@ export default function AppSettingsScreen() {
           </TouchableOpacity>
         </View>
       </ScrollView>
+
+      <CustomAlert 
+        visible={alertVisible}
+        title={alertConfig.title}
+        message={alertConfig.message}
+        type={alertConfig.type}
+        buttons={alertConfig.buttons}
+        onDismiss={() => setAlertVisible(false)}
+      />
     </SafeAreaView>
   );
 }
