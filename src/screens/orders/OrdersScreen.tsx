@@ -4,26 +4,36 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Package, MapPin, Clock, ArrowRight, Navigation } from 'lucide-react-native';
 import api from '../../api/axios';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { Snackbar } from '../../components/common/Snackbar';
+import { useSnackbar } from '../../hooks/useSnackbar';
+import { lightColors, SIZES, SHADOWS } from '../../theme/theme';
 
 export interface Order {
-  id: number;
+  orderId: number;
+  trackingNumber: string;
   status: string;
   pickupAddress: string;
-  dropoffAddress: string;
+  dropAddress: string;
   createdAt: string;
   deliveryFee: number;
+  distanceKm: number;
+  driverName: string | null;
 }
 
 const STATUS_COLORS: Record<string, { bg: string; text: string; pulse: string }> = {
+  CREATED: { bg: '#F1F5F9', text: '#475569', pulse: '#94A3B8' },
   PENDING: { bg: '#FEF3C7', text: '#D97706', pulse: '#F59E0B' },
+  ASSIGNED: { bg: '#EDE9FE', text: '#7C3AED', pulse: '#8B5CF6' },
   ACCEPTED: { bg: '#E0E7FF', text: '#4338CA', pulse: '#6366F1' },
-  IN_TRANSIT: { bg: '#DBEAFE', text: '#1D4ED8', pulse: '#3B82F6' },
+  PICKED_UP: { bg: '#DBEAFE', text: '#1D4ED8', pulse: '#3B82F6' },
+  IN_TRANSIT: { bg: '#E0F2FE', text: '#0369A1', pulse: '#0EA5E9' },
   DELIVERED: { bg: '#D1FAE5', text: '#047857', pulse: '#10B981' },
   CANCELLED: { bg: '#FEE2E2', text: '#B91C1C', pulse: '#EF4444' }
 };
 
 export default function OrdersScreen() {
   const navigation = useNavigation();
+  const { snackbar, showSnackbar, hideSnackbar } = useSnackbar();
   const [orders, setOrders] = useState<Order[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -32,9 +42,10 @@ export default function OrdersScreen() {
   const fetchOrders = async () => {
     try {
       const response = await api.get('/orders/my-orders');
-      setOrders(response.data.data.content || []);
+      const content = response.data.data.content || [];
+      setOrders(content);
     } catch (e) {
-      console.log('Failed to fetch customer orders', e);
+      showSnackbar('Failed to load orders. Please try again.', 'error');
     } finally {
       setIsLoading(false);
       setIsRefreshing(false);
@@ -63,15 +74,14 @@ export default function OrdersScreen() {
     const colors = STATUS_COLORS[item.status] || STATUS_COLORS.PENDING;
 
     return (
-      <TouchableOpacity 
-        style={styles.orderCard} 
-        activeOpacity={0.9} 
-        onPress={() => (navigation as any).navigate('OrderTracking', { orderId: item.id })}
-      >
+      <TouchableOpacity
+        style={styles.orderCard}
+        activeOpacity={0.9}
+        onPress={() => (navigation as any).navigate('OrderTracking', { orderId: item.trackingNumber })}>
         <View style={styles.cardHeader}>
           <View style={styles.idBadge}>
             <Package size={14} color="#0F172A" />
-            <Text style={styles.idText}>#{item.id.toString().padStart(5, '0')}</Text>
+            <Text style={styles.idText}>#{item.trackingNumber ?? '?????'}</Text>
           </View>
           <View style={[styles.statusPill, { backgroundColor: colors.bg }]}>
             <View style={[styles.statusPulse, { backgroundColor: colors.pulse }]} />
@@ -92,7 +102,7 @@ export default function OrdersScreen() {
             <View style={[styles.dot, { backgroundColor: '#10B981' }]} />
             <View style={styles.timelineContent}>
               <Text style={styles.timelineLabel}>DROPOFF</Text>
-              <Text style={styles.timelineAddress} numberOfLines={1}>{item.dropoffAddress}</Text>
+              <Text style={styles.timelineAddress} numberOfLines={1}>{item.dropAddress}</Text>
             </View>
           </View>
         </View>
@@ -109,56 +119,64 @@ export default function OrdersScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>My Deliveries</Text>
-      </View>
-
-      <View style={styles.tabContainer}>
-        <TouchableOpacity
-          style={[styles.tab, activeTab === 'ACTIVE' && styles.tabActive]}
-          onPress={() => setActiveTab('ACTIVE')}
-        >
-          <Text style={[styles.tabText, activeTab === 'ACTIVE' && styles.tabTextActive]}>In Progress</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.tab, activeTab === 'PAST' && styles.tabActive]}
-          onPress={() => setActiveTab('PAST')}
-        >
-          <Text style={[styles.tabText, activeTab === 'PAST' && styles.tabTextActive]}>Completed</Text>
-        </TouchableOpacity>
-      </View>
-
-      {isLoading ? (
-        <View style={styles.centerContainer}>
-          <ActivityIndicator size="large" color="#0F172A" />
+    <>
+      <SafeAreaView style={styles.container} edges={['top']}>
+        <View style={styles.header}>
+          <Text style={styles.headerTitle}>My Deliveries</Text>
         </View>
-      ) : filteredOrders.length === 0 ? (
-        <View style={styles.centerContainer}>
-          <View style={styles.emptyIconCircle}>
-            <Navigation size={32} color="#94A3B8" />
+
+        <View style={styles.tabContainer}>
+          <TouchableOpacity
+            style={[styles.tab, activeTab === 'ACTIVE' && styles.tabActive]}
+            onPress={() => setActiveTab('ACTIVE')}
+          >
+            <Text style={[styles.tabText, activeTab === 'ACTIVE' && styles.tabTextActive]}>In Progress</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.tab, activeTab === 'PAST' && styles.tabActive]}
+            onPress={() => setActiveTab('PAST')}
+          >
+            <Text style={[styles.tabText, activeTab === 'PAST' && styles.tabTextActive]}>Completed</Text>
+          </TouchableOpacity>
+        </View>
+
+        {isLoading ? (
+          <View style={styles.centerContainer}>
+            <ActivityIndicator size="large" color="#0F172A" />
           </View>
-          <Text style={styles.emptyTitle}>No {activeTab.toLowerCase()} deliveries</Text>
-          <Text style={styles.emptyDesc}>Your {activeTab.toLowerCase()} bookings will appear here.</Text>
-        </View>
-      ) : (
-        <FlatList
-          data={filteredOrders}
-          keyExtractor={(item) => item.id.toString()}
-          renderItem={renderItem}
-          contentContainerStyle={styles.listContent}
-          showsVerticalScrollIndicator={false}
-          refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={onRefresh} tintColor="#0F172A" />}
-        />
-      )}
-    </SafeAreaView>
+        ) : filteredOrders.length === 0 ? (
+          <View style={styles.centerContainer}>
+            <View style={styles.emptyIconCircle}>
+              <Navigation size={32} color="#94A3B8" />
+            </View>
+            <Text style={styles.emptyTitle}>No {activeTab.toLowerCase()} deliveries</Text>
+            <Text style={styles.emptyDesc}>Your {activeTab.toLowerCase()} bookings will appear here.</Text>
+          </View>
+        ) : (
+          <FlatList
+            data={filteredOrders}
+            keyExtractor={(item) => item.trackingNumber?.toString() ?? Math.random().toString()}
+            renderItem={renderItem}
+            contentContainerStyle={styles.listContent}
+            showsVerticalScrollIndicator={false}
+            refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={onRefresh} tintColor="#0F172A" />}
+          />
+        )}
+      </SafeAreaView>
+      <Snackbar
+        visible={snackbar.visible}
+        message={snackbar.message}
+        type={snackbar.type}
+        onDismiss={hideSnackbar}
+      />
+    </>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#FAFAFA' },
-  header: { paddingHorizontal: 24, paddingVertical: 16, backgroundColor: '#FAFAFA' },
-  headerTitle: { fontSize: 28, fontWeight: '900', color: '#0F172A', letterSpacing: -0.5 },
+  container: { flex: 1, backgroundColor: lightColors.background },
+  header: { paddingHorizontal: 24, paddingTop: 8, paddingBottom: 16, backgroundColor: lightColors.background },
+  headerTitle: { fontSize: 28, fontWeight: '900', color: lightColors.text, letterSpacing: -0.5 },
 
   tabContainer: { flexDirection: 'row', paddingHorizontal: 24, marginBottom: 16, gap: 12 },
   tab: { paddingVertical: 10, paddingHorizontal: 20, borderRadius: 20, backgroundColor: '#F1F5F9' },

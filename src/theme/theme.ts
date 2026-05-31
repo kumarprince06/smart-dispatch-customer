@@ -8,12 +8,15 @@ export const lightColors = {
   surface: '#FFFFFF',
   surfaceLight: '#F1F5F9',
   
-  primary: '#6366F1',
-  primaryLight: '#818CF8', 
-  primaryDark: '#4338CA',
-  
-  accent: '#14B8A6',
-  
+  // FataFat Brand Colors
+  primary: '#2563EB',        // Royal Blue — main brand color
+  primaryLight: '#EFF6FF',   // Blue tint for backgrounds
+  primaryDark: '#1D4ED8',    // Darker blue for pressed states
+
+  accent: '#F97316',         // Orange — speed/energy accent
+  accentLight: '#FFF7ED',    // Orange tint
+  accentDark: '#EA6C00',     // Darker orange
+
   success: '#10B981',
   warning: '#F59E0B',
   error: '#EF4444',

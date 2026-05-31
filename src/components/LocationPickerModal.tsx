@@ -1,7 +1,8 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, TextInput, ActivityIndicator, KeyboardAvoidingView, Platform, Modal } from 'react-native';
 import { WebView } from 'react-native-webview';
 import * as Location from 'expo-location';
+import { MapPin } from 'lucide-react-native';
 
 interface LocationPickerModalProps {
   visible: boolean;
@@ -21,10 +22,14 @@ export default function LocationPickerModal({
   initialLng = 77.2090
 }: LocationPickerModalProps) {
   
+  const webViewRef = useRef<WebView>(null);
+  const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  
   const [lat, setLat] = useState(initialLat);
   const [lng, setLng] = useState(initialLng);
   const [address, setAddress] = useState('');
   const [isLocating, setIsLocating] = useState(false);
+  const [suggestions, setSuggestions] = useState<any[]>([]);
 
   useEffect(() => {
     if (visible) {
@@ -61,6 +66,59 @@ export default function LocationPickerModal({
     } finally {
       setIsLocating(false);
     }
+  };
+
+  const searchAddress = (text: string) => {
+    setAddress(text);
+    
+    if (searchTimeoutRef.current) {
+      clearTimeout(searchTimeoutRef.current);
+    }
+
+    if (text.length > 3) {
+      searchTimeoutRef.current = setTimeout(async () => {
+        try {
+          const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(text)}&limit=5`, {
+            headers: {
+              'User-Agent': 'SmartDispatchApp/1.0',
+              'Accept-Language': 'en-US,en;q=0.9'
+            }
+          });
+          
+          if (!res.ok) {
+            const errorText = await res.text();
+            console.log('Nominatim Error:', errorText);
+            return;
+          }
+          
+          const data = await res.json();
+          setSuggestions(data);
+        } catch (error) {
+          console.log('Search error', error);
+        }
+      }, 500); // 500ms debounce
+    } else {
+      setSuggestions([]);
+    }
+  };
+
+  const selectSuggestion = (item: any) => {
+    const newLat = parseFloat(item.lat);
+    const newLng = parseFloat(item.lon);
+    
+    setLat(newLat);
+    setLng(newLng);
+    setAddress(item.display_name);
+    setSuggestions([]);
+
+    // Dynamically pan the map without reloading the HTML
+    webViewRef.current?.injectJavaScript(`
+      if (typeof map !== 'undefined' && typeof marker !== 'undefined') {
+        map.setView([${newLat}, ${newLng}], 15);
+        marker.setLatLng([${newLat}, ${newLng}]);
+      }
+      true;
+    `);
   };
 
   const mapHtml = useMemo(() => {
@@ -137,13 +195,25 @@ export default function LocationPickerModal({
         <View style={styles.modalContent}>
           <Text style={styles.modalTitle}>{title}</Text>
           
-          <TextInput
-            style={styles.modalInput}
-            value={address}
-            onChangeText={setAddress}
-            multiline
-            placeholder="Search or drag pin..."
-          />
+          <View style={{ zIndex: 10 }}>
+            <TextInput
+              style={styles.modalInput}
+              value={address}
+              onChangeText={searchAddress}
+              multiline
+              placeholder="Search or drag pin..."
+            />
+            {suggestions.length > 0 && (
+              <View style={styles.suggestionsCard}>
+                {suggestions.map((item, idx) => (
+                  <TouchableOpacity key={idx} style={styles.suggestionItem} onPress={() => selectSuggestion(item)}>
+                    <MapPin size={16} color="#64748B" />
+                    <Text style={styles.suggestionText} numberOfLines={2}>{item.display_name}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
+          </View>
 
           <View style={styles.mapWrap}>
             {isLocating ? (
@@ -154,6 +224,7 @@ export default function LocationPickerModal({
             ) : (
               <>
                 <WebView
+                  ref={webViewRef}
                   source={{ html: mapHtml }}
                   style={{ flex: 1 }}
                   scrollEnabled={false}
@@ -185,12 +256,16 @@ const styles = StyleSheet.create({
   modalContent: { backgroundColor: '#FFFFFF', borderTopLeftRadius: 32, borderTopRightRadius: 32, padding: 24, paddingBottom: 40, height: '90%' },
   modalTitle: { fontSize: 20, fontWeight: '800', color: '#0F172A', marginBottom: 20 },
   modalInput: { backgroundColor: '#F8FAFC', borderWidth: 1, borderColor: '#E2E8F0', borderRadius: 16, padding: 16, height: 80, fontSize: 15, color: '#0F172A', textAlignVertical: 'top', marginBottom: 16 },
-  mapWrap: { flex: 1, minHeight: 350, borderRadius: 16, overflow: 'hidden', marginBottom: 24, borderWidth: 1, borderColor: '#E2E8F0', position: 'relative' },
+  mapWrap: { flex: 1, minHeight: 350, borderRadius: 16, overflow: 'hidden', marginBottom: 24, borderWidth: 1, borderColor: '#E2E8F0', position: 'relative', zIndex: 1 },
   mapOverlayTextWrap: { position: 'absolute', top: 12, alignSelf: 'center', backgroundColor: '#0F172A', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 12 },
   mapOverlayText: { color: '#FFFFFF', fontSize: 12, fontWeight: '700' },
   modalActions: { flexDirection: 'row', gap: 16 },
   cancelBtn: { flex: 1, height: 56, borderRadius: 16, backgroundColor: '#F1F5F9', justifyContent: 'center', alignItems: 'center' },
   cancelBtnText: { fontSize: 16, fontWeight: '700', color: '#64748B' },
   saveBtn: { flex: 2, height: 56, borderRadius: 16, backgroundColor: '#0F172A', justifyContent: 'center', alignItems: 'center' },
-  saveBtnText: { fontSize: 16, fontWeight: '700', color: '#FFFFFF' }
+  saveBtnText: { fontSize: 16, fontWeight: '700', color: '#FFFFFF' },
+  
+  suggestionsCard: { position: 'absolute', top: 90, left: 0, right: 0, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#E2E8F0', borderRadius: 12, overflow: 'hidden', shadowColor: '#000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.1, shadowRadius: 16, elevation: 10, zIndex: 100 },
+  suggestionItem: { flexDirection: 'row', alignItems: 'center', gap: 8, padding: 12, borderBottomWidth: 1, borderBottomColor: '#F1F5F9' },
+  suggestionText: { flex: 1, fontSize: 13, color: '#334155' }
 });

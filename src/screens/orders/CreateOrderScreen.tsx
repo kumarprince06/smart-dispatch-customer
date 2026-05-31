@@ -1,60 +1,87 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, TextInput, ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView, Alert, Dimensions, Modal } from 'react-native';
+import React, { useState, useRef } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, TextInput, ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView, Dimensions, Modal } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ArrowLeft, MapPin, Package, CheckCircle, Navigation, Info, ChevronRight, Map } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import api from '../../api/axios';
 import LocationPickerModal from '../../components/LocationPickerModal';
+import { SIZES, lightColors } from '../../theme/theme';
+import { useAuthStore } from '../../store/authStore';
+import { Snackbar } from '../../components/common/Snackbar';
+import { useSnackbar } from '../../hooks/useSnackbar';
 
 const { width } = Dimensions.get('window');
 
 export default function CreateOrderScreen({ navigation }: any) {
+  const { user } = useAuthStore();
+  const { snackbar, showSnackbar, hideSnackbar } = useSnackbar();
   const [isLoading, setIsLoading] = useState(false);
   const [estimateLoading, setEstimateLoading] = useState(false);
   const [priceEstimate, setPriceEstimate] = useState<any>(null);
-  
-  const [pickupLat, setPickupLat] = useState(28.6139);
-  const [pickupLng, setPickupLng] = useState(77.2090);
-  const [dropLat, setDropLat] = useState(28.5355);
-  const [dropLng, setDropLng] = useState(77.2410);
+  const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  const [pickupLat, setPickupLat] = useState<number | null>(null);
+  const [pickupLng, setPickupLng] = useState<number | null>(null);
+  const [dropLat, setDropLat] = useState<number | null>(null);
+  const [dropLng, setDropLng] = useState<number | null>(null);
 
   const [pickupSuggestions, setPickupSuggestions] = useState<any[]>([]);
   const [dropSuggestions, setDropSuggestions] = useState<any[]>([]);
-  
+
   // Map Modal State
   const [mapModalVisible, setMapModalVisible] = useState(false);
   const [mapType, setMapType] = useState<'pickup' | 'drop'>('pickup');
-  
+
   const [formData, setFormData] = useState({
     pickupAddress: '',
-    pickupContactName: '',
-    pickupContactPhone: '',
     dropAddress: '',
     dropContactName: '',
     dropContactPhone: '',
     packageType: 'DOCUMENTS',
-    packageDescription: '',
-    packageWeightKg: '1.0'
+    packageDescription: ''
   });
 
-  // Fetch estimate whenever coordinates or package type changes
+  const [items, setItems] = useState([{
+    name: '', quantity: '1', weight: '1.0', length: '', width: '', height: ''
+  }]);
+
+  // Fetch estimate only when item details or package type changes (coordinates must already be set)
   React.useEffect(() => {
-    if (formData.pickupAddress.length > 3 && formData.dropAddress.length > 3) {
+    if (pickupLat !== null && dropLat !== null) {
       fetchEstimate();
     }
-  }, [pickupLat, pickupLng, dropLat, dropLng, formData.packageType]);
+  }, [items, formData.packageType]);
 
-  const searchAddress = async (text: string, isPickup: boolean) => {
+  const searchAddress = (text: string, isPickup: boolean) => {
     if (isPickup) setFormData({ ...formData, pickupAddress: text });
     else setFormData({ ...formData, dropAddress: text });
 
+    if (searchTimeoutRef.current) {
+      clearTimeout(searchTimeoutRef.current);
+    }
+
     if (text.length > 3) {
-      try {
-        const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(text)}&limit=5`);
-        const data = await res.json();
-        if (isPickup) setPickupSuggestions(data);
-        else setDropSuggestions(data);
-      } catch (e) {}
+      searchTimeoutRef.current = setTimeout(async () => {
+        try {
+          const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(text)}&limit=5`, {
+            headers: {
+              'User-Agent': 'SmartDispatchApp/1.0',
+              'Accept-Language': 'en-US,en;q=0.9'
+            }
+          });
+
+          if (!res.ok) {
+            console.log('Nominatim Error:', await res.text());
+            return;
+          }
+
+          const data = await res.json();
+          if (isPickup) setPickupSuggestions(data);
+          else setDropSuggestions(data);
+        } catch (e) {
+          console.log('Search error', e);
+        }
+      }, 500); // 500ms debounce
     } else {
       if (isPickup) setPickupSuggestions([]);
       else setDropSuggestions([]);
@@ -64,14 +91,22 @@ export default function CreateOrderScreen({ navigation }: any) {
   const fetchEstimate = async () => {
     setEstimateLoading(true);
     try {
-      const res = await api.post('/pricing/estimate', {
+      const payload = {
         pickupLat: pickupLat,
         pickupLng: pickupLng,
-        dropoffLat: dropLat, 
+        dropoffLat: dropLat,
         dropoffLng: dropLng,
         priority: 'STANDARD',
-        packageType: formData.packageType
-      });
+        packageType: formData.packageType,
+        items: items.map(item => ({
+          weightKg: parseFloat(item.weight) || 1.0,
+          lengthCm: parseFloat(item.length) || 0,
+          widthCm: parseFloat(item.width) || 0,
+          heightCm: parseFloat(item.height) || 0,
+          quantity: parseInt(item.quantity) || 1
+        }))
+      };
+      const res = await api.post('/pricing/estimate', payload);
       if (res.data.success) {
         setPriceEstimate(res.data.data);
       }
@@ -84,27 +119,35 @@ export default function CreateOrderScreen({ navigation }: any) {
 
   const handleCreateOrder = async () => {
     if (!formData.pickupAddress || !formData.dropAddress) {
-      Alert.alert('Missing Details', 'Please provide both pickup and drop addresses.');
+      showSnackbar('Please provide both pickup and drop-off addresses.', 'error');
       return;
     }
     setIsLoading(true);
     try {
       const payload = {
         pickupAddress: formData.pickupAddress,
-        pickupLatitude: pickupLat, pickupLongitude: pickupLng,
-        pickupContactName: formData.pickupContactName, pickupContactPhone: formData.pickupContactPhone,
+        pickupLatitude: pickupLat || 0, pickupLongitude: pickupLng || 0,
+        pickupContactName: user?.name || user?.fullName || '',
+        pickupContactPhone: user?.phone || user?.phoneNumber || '',
         dropAddress: formData.dropAddress,
-        dropLatitude: dropLat, dropLongitude: dropLng,
+        dropLatitude: dropLat || 0, dropLongitude: dropLng || 0,
         dropContactName: formData.dropContactName, dropContactPhone: formData.dropContactPhone,
         packageType: formData.packageType, packageDescription: formData.packageDescription,
-        packageWeightKg: parseFloat(formData.packageWeightKg) || 1.0, priority: 'STANDARD'
+        priority: 'STANDARD',
+        items: items.map(item => ({
+          name: item.name,
+          weightKg: parseFloat(item.weight) || 1.0,
+          lengthCm: parseFloat(item.length) || 0,
+          widthCm: parseFloat(item.width) || 0,
+          heightCm: parseFloat(item.height) || 0,
+          quantity: parseInt(item.quantity) || 1
+        }))
       };
       await api.post('/orders', payload);
-      Alert.alert('Success', 'Your delivery has been booked successfully!', [
-        { text: 'OK', onPress: () => navigation.navigate('Main', { screen: 'Deliveries' }) }
-      ]);
+      showSnackbar('Delivery booked successfully! 🎉', 'success');
+      setTimeout(() => navigation.navigate('Main', { screen: 'Deliveries' }), 1500);
     } catch (error: any) {
-      Alert.alert('Booking Failed', error?.response?.data?.message || 'Something went wrong.');
+      showSnackbar(error?.response?.data?.message || 'Booking failed. Please try again.', 'error');
     } finally {
       setIsLoading(false);
     }
@@ -141,10 +184,10 @@ export default function CreateOrderScreen({ navigation }: any) {
 
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
           <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-            
+
             <View style={styles.timelineContainer}>
               <View style={styles.timelineLine} />
-              
+
               <View style={styles.card}>
                 <View style={styles.cardHeader}>
                   <View style={[styles.iconCircle, { backgroundColor: '#E0F2FE' }]}>
@@ -173,10 +216,8 @@ export default function CreateOrderScreen({ navigation }: any) {
                     ))}
                   </View>
                 )}
-                <View style={styles.row}>
-                  <TextInput style={[styles.input, { flex: 1 }]} placeholder="Sender Name" placeholderTextColor="#94A3B8" value={formData.pickupContactName} onChangeText={t => setFormData({...formData, pickupContactName: t})} />
-                  <TextInput style={[styles.input, { flex: 1 }]} placeholder="Phone No." placeholderTextColor="#94A3B8" keyboardType="phone-pad" value={formData.pickupContactPhone} onChangeText={t => setFormData({...formData, pickupContactPhone: t})} />
-                </View>
+
+
               </View>
 
               <View style={styles.card}>
@@ -208,8 +249,8 @@ export default function CreateOrderScreen({ navigation }: any) {
                   </View>
                 )}
                 <View style={styles.row}>
-                  <TextInput style={[styles.input, { flex: 1 }]} placeholder="Receiver Name" placeholderTextColor="#94A3B8" value={formData.dropContactName} onChangeText={t => setFormData({...formData, dropContactName: t})} />
-                  <TextInput style={[styles.input, { flex: 1 }]} placeholder="Phone No." placeholderTextColor="#94A3B8" keyboardType="phone-pad" value={formData.dropContactPhone} onChangeText={t => setFormData({...formData, dropContactPhone: t})} />
+                  <TextInput style={[styles.input, { flex: 1 }]} placeholder="Receiver Name" placeholderTextColor="#94A3B8" value={formData.dropContactName} onChangeText={t => setFormData({ ...formData, dropContactName: t })} />
+                  <TextInput style={[styles.input, { flex: 1 }]} placeholder="Phone No." placeholderTextColor="#94A3B8" keyboardType="phone-pad" value={formData.dropContactPhone} onChangeText={t => setFormData({ ...formData, dropContactPhone: t })} />
                 </View>
               </View>
             </View>
@@ -221,56 +262,105 @@ export default function CreateOrderScreen({ navigation }: any) {
                 </View>
                 <Text style={styles.cardTitle}>Package Info</Text>
               </View>
-              
+
               <View style={styles.typeSelector}>
                 {['DOCUMENTS', 'FOOD', 'ELECTRONICS', 'OTHER'].map(type => (
-                  <TouchableOpacity 
-                    key={type} 
+                  <TouchableOpacity
+                    key={type}
                     style={[styles.typeBadge, formData.packageType === type && styles.typeBadgeActive]}
-                    onPress={() => setFormData({...formData, packageType: type})}
+                    onPress={() => setFormData({ ...formData, packageType: type })}
                   >
                     <Text style={[styles.typeText, formData.packageType === type && styles.typeTextActive]}>{type}</Text>
                   </TouchableOpacity>
                 ))}
               </View>
 
-              <TextInput style={[styles.input, { height: 80, textAlignVertical: 'top', paddingTop: 16 }]} placeholder="Any specific instructions? (Optional)" placeholderTextColor="#94A3B8" multiline value={formData.packageDescription} onChangeText={t => setFormData({...formData, packageDescription: t})} />
+              {items.map((item, index) => (
+                <View key={index} style={{ marginBottom: 16, padding: 12, backgroundColor: '#F8FAFC', borderRadius: 12, borderWidth: 1, borderColor: '#E2E8F0' }}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                    <Text style={{ fontSize: 13, fontWeight: '700', color: '#64748B' }}>ITEM {index + 1}</Text>
+                    {items.length > 1 && (
+                      <TouchableOpacity onPress={() => {
+                        const newItems = [...items];
+                        newItems.splice(index, 1);
+                        setItems(newItems);
+                      }}>
+                        <Text style={{ color: '#EF4444', fontSize: 13, fontWeight: '600' }}>Remove</Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                  <View style={styles.row}>
+                    <TextInput style={[styles.input, { flex: 2, backgroundColor: '#FFFFFF' }]} placeholder="Item Name (e.g. Laptop)" placeholderTextColor="#94A3B8" value={item.name} onChangeText={t => { const newItems = [...items]; newItems[index].name = t; setItems(newItems); }} />
+                    <TextInput style={[styles.input, { flex: 1, backgroundColor: '#FFFFFF' }]} placeholder="Qty" placeholderTextColor="#94A3B8" keyboardType="number-pad" value={item.quantity} onChangeText={t => { const newItems = [...items]; newItems[index].quantity = t; setItems(newItems); }} />
+                  </View>
+                  <View style={styles.row}>
+                    <TextInput style={[styles.input, { flex: 1, backgroundColor: '#FFFFFF' }]} placeholder="Weight (kg)" placeholderTextColor="#94A3B8" keyboardType="numeric" value={item.weight} onChangeText={t => { const newItems = [...items]; newItems[index].weight = t; setItems(newItems); }} />
+                    <TextInput style={[styles.input, { flex: 1, backgroundColor: '#FFFFFF' }]} placeholder="L (cm)" placeholderTextColor="#94A3B8" keyboardType="numeric" value={item.length} onChangeText={t => { const newItems = [...items]; newItems[index].length = t; setItems(newItems); }} />
+                    <TextInput style={[styles.input, { flex: 1, backgroundColor: '#FFFFFF' }]} placeholder="W (cm)" placeholderTextColor="#94A3B8" keyboardType="numeric" value={item.width} onChangeText={t => { const newItems = [...items]; newItems[index].width = t; setItems(newItems); }} />
+                    <TextInput style={[styles.input, { flex: 1, backgroundColor: '#FFFFFF' }]} placeholder="H (cm)" placeholderTextColor="#94A3B8" keyboardType="numeric" value={item.height} onChangeText={t => { const newItems = [...items]; newItems[index].height = t; setItems(newItems); }} />
+                  </View>
+                </View>
+              ))}
+
+              <TouchableOpacity
+                style={{ paddingVertical: 12, alignItems: 'center', backgroundColor: '#EFF6FF', borderRadius: 12, marginBottom: 16 }}
+                onPress={() => setItems([...items, { name: '', quantity: '1', weight: '1.0', length: '', width: '', height: '' }])}
+              >
+                <Text style={{ color: '#3B82F6', fontWeight: '700' }}>+ Add Another Item</Text>
+              </TouchableOpacity>
+
+              <TextInput style={[styles.input, { height: 80, textAlignVertical: 'top' }]} placeholder="Any specific instructions? (Optional)" placeholderTextColor="#94A3B8" multiline value={formData.packageDescription} onChangeText={t => setFormData({ ...formData, packageDescription: t })} />
             </View>
+
+            {priceEstimate && (
+              <View style={[styles.card, { marginTop: 8 }]}>
+                <View style={styles.cardHeader}>
+                  <View style={[styles.iconCircle, { backgroundColor: '#ECFDF5' }]}>
+                    <Navigation size={18} color="#10B981" />
+                  </View>
+                  <Text style={styles.cardTitle}>Price Estimate</Text>
+                </View>
+
+                <View style={{ marginTop: 12 }}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12 }}>
+                    <Text style={{ fontSize: 15, color: '#64748B', fontWeight: '500' }}>Distance ({priceEstimate.distanceKm} km)</Text>
+                    <Text style={{ fontSize: 15, color: '#0F172A', fontWeight: '600' }}>
+                      {priceEstimate.currency}{priceEstimate.baseFee}
+                    </Text>
+                  </View>
+
+                  {priceEstimate.surgeMultiplier > 1 && (
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12 }}>
+                      <Text style={{ fontSize: 15, color: '#F59E0B', fontWeight: '600' }}>High Demand Surge</Text>
+                      <Text style={{ fontSize: 15, color: '#F59E0B', fontWeight: '700' }}>
+                        x{priceEstimate.surgeMultiplier}
+                      </Text>
+                    </View>
+                  )}
+
+                  <View style={{ height: 1, backgroundColor: '#F1F5F9', marginBottom: 12 }} />
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <Text style={{ fontSize: 18, fontWeight: '800', color: '#0F172A' }}>Total Amount</Text>
+                    <Text style={{ fontSize: 24, fontWeight: '900', color: '#10B981' }}>
+                      {priceEstimate.currency}{priceEstimate.estimatedFee}
+                    </Text>
+                  </View>
+                </View>
+              </View>
+            )}
 
             <View style={styles.infoBox}>
               <Info size={16} color="#64748B" />
               <Text style={styles.infoText}>A rider will be assigned immediately after booking.</Text>
             </View>
-            <View style={{ height: 20 }} />
           </ScrollView>
         </KeyboardAvoidingView>
 
-        {priceEstimate && (
-          <View style={{ padding: 16, backgroundColor: '#F8FAFC', borderTopWidth: 1, borderTopColor: '#E2E8F0' }}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}>
-              <Text style={{ fontSize: 14, color: '#64748B' }}>Distance ({priceEstimate.distanceKm} km)</Text>
-              <Text style={{ fontSize: 14, color: '#64748B' }}>{priceEstimate.currency}{priceEstimate.baseFee}</Text>
-            </View>
-            {priceEstimate.surgeMultiplier > 1 && (
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}>
-                <Text style={{ fontSize: 14, color: '#F59E0B' }}>High Demand Surge</Text>
-                <Text style={{ fontSize: 14, color: '#F59E0B' }}>x{priceEstimate.surgeMultiplier}</Text>
-              </View>
-            )}
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Text style={{ fontSize: 18, fontWeight: '700', color: '#0F172A' }}>Total Estimated</Text>
-              <Text style={{ fontSize: 24, fontWeight: '800', color: '#3B82F6' }}>
-                {priceEstimate.currency}{priceEstimate.estimatedFee}
-              </Text>
-            </View>
-          </View>
-        )}
-
         <View style={styles.footer}>
-          <TouchableOpacity 
-            style={[styles.submitButton, (isLoading || estimateLoading) && styles.disabledButton]}
+          <TouchableOpacity
+            style={[styles.submitButton, (!pickupLat || !dropLat || isLoading) && styles.disabledButton]}
+            disabled={!pickupLat || !dropLat || isLoading}
             onPress={handleCreateOrder}
-            disabled={isLoading || estimateLoading}
           >
             <LinearGradient colors={['#0F172A', '#1E293B']} style={styles.gradientButton}>
               {isLoading ? (
@@ -290,9 +380,17 @@ export default function CreateOrderScreen({ navigation }: any) {
           onClose={() => setMapModalVisible(false)}
           onConfirm={confirmMapSelection}
           title={mapType === 'pickup' ? "Set Pickup Location" : "Set Drop-off Location"}
+          initialLat={mapType === 'pickup' ? (pickupLat || 28.6139) : (dropLat || 28.6139)}
+          initialLng={mapType === 'pickup' ? (pickupLng || 77.2090) : (dropLng || 77.2090)}
         />
 
       </SafeAreaView>
+      <Snackbar
+        visible={snackbar.visible}
+        message={snackbar.message}
+        type={snackbar.type}
+        onDismiss={hideSnackbar}
+      />
     </View>
   );
 }
@@ -302,30 +400,30 @@ const styles = StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 24, paddingVertical: 16, backgroundColor: '#FFFFFF' },
   backButton: { width: 44, height: 44, borderRadius: 22, backgroundColor: '#F8FAFC', justifyContent: 'center', alignItems: 'center' },
   headerTitle: { fontSize: 20, fontWeight: '800', color: '#0F172A' },
-  
+
   scrollContent: { padding: 24, paddingBottom: 40 },
-  
+
   timelineContainer: { position: 'relative' },
   timelineLine: { position: 'absolute', left: 45, top: 40, bottom: 40, width: 2, backgroundColor: '#E2E8F0', zIndex: -1 },
-  
+
   card: { backgroundColor: '#FFFFFF', borderRadius: 24, padding: 20, marginBottom: 16, borderWidth: 1, borderColor: '#F1F5F9', shadowColor: '#0F172A', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.04, shadowRadius: 16, elevation: 3 },
   cardHeader: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 16 },
   iconCircle: { width: 36, height: 36, borderRadius: 18, justifyContent: 'center', alignItems: 'center' },
   cardTitle: { fontSize: 16, fontWeight: '800', color: '#0F172A' },
-  
+
   input: { backgroundColor: '#F8FAFC', borderWidth: 1, borderColor: '#F1F5F9', borderRadius: 16, paddingHorizontal: 16, height: 56, marginBottom: 12, fontSize: 15, fontWeight: '500', color: '#0F172A' },
   row: { flexDirection: 'row', gap: 12 },
-  
+
   typeSelector: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 16 },
   typeBadge: { paddingHorizontal: 16, paddingVertical: 10, borderRadius: 20, backgroundColor: '#F8FAFC', borderWidth: 1, borderColor: '#F1F5F9' },
   typeBadgeActive: { backgroundColor: '#0F172A', borderColor: '#0F172A' },
   typeText: { fontSize: 12, fontWeight: '800', color: '#64748B', letterSpacing: 0.5 },
   typeTextActive: { color: '#FFFFFF' },
-  
+
   infoBox: { flexDirection: 'row', alignItems: 'center', gap: 8, padding: 16, backgroundColor: '#F1F5F9', borderRadius: 16, marginTop: 8 },
   infoText: { fontSize: 13, fontWeight: '600', color: '#64748B', flex: 1 },
-  
-  footer: { padding: 24, backgroundColor: '#FAFAFA', borderTopWidth: 1, borderTopColor: '#F1F5F9' },
+
+  footer: { paddingHorizontal: 24, paddingVertical: 16, paddingBottom: 28, backgroundColor: '#FAFAFA', borderTopWidth: 1, borderTopColor: '#F1F5F9' },
   submitButton: { borderRadius: 24, overflow: 'hidden', shadowColor: '#0F172A', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.25, shadowRadius: 16, elevation: 8 },
   disabledButton: { opacity: 0.7 },
   gradientButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', height: 60, gap: 12 },
