@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, TextInput, ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView, Dimensions, Modal } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, TextInput, ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView, Dimensions, Modal, Linking } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ArrowLeft, MapPin, Package, CheckCircle, Navigation, Info, ChevronRight, Map, Wallet, CreditCard, Banknote, ShieldCheck } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -50,7 +50,7 @@ export default function CreateOrderScreen({ navigation }: any) {
 
   // Payment Modal State
   const [paymentModalVisible, setPaymentModalVisible] = useState(false);
-  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<'WALLET' | 'RAZORPAY' | 'CASHFREE' | 'COD'>('WALLET');
+  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<'WALLET' | 'RAZORPAY' | 'PAYU' | 'STRIPE' | 'COD'>('WALLET');
   const [walletBalance, setWalletBalance] = useState(0);
 
   React.useEffect(() => {
@@ -238,6 +238,14 @@ export default function CreateOrderScreen({ navigation }: any) {
                     showSnackbar('Payment cancelled or failed.', 'error');
                     setTimeout(() => navigation.navigate('Main', { screen: 'Deliveries' }), 2000);
                   });
+              } else if (selectedPaymentMethod === 'STRIPE' || selectedPaymentMethod === 'PAYU') {
+                if (sessionData.paymentUrl) {
+                  Linking.openURL(sessionData.paymentUrl);
+                  showSnackbar('Redirecting to payment gateway...', 'info');
+                  setTimeout(() => navigation.navigate('Main', { screen: 'Deliveries' }), 1500);
+                } else {
+                  showSnackbar('Could not retrieve payment link.', 'error');
+                }
               } else {
                 // Wallet flow — instantly deducted
                 showSnackbar('Payment successful! Delivery booked! 🎉', 'success');
@@ -540,20 +548,37 @@ export default function CreateOrderScreen({ navigation }: any) {
                   </View>
                 </TouchableOpacity>
                 
-                {/* Cashfree (Alternative) Option */}
+                {/* PayU Option */}
                 <TouchableOpacity 
-                  style={[styles.paymentOption, selectedPaymentMethod === 'CASHFREE' && styles.paymentOptionActive]}
-                  onPress={() => setSelectedPaymentMethod('CASHFREE')}
+                  style={[styles.paymentOption, selectedPaymentMethod === 'PAYU' && styles.paymentOptionActive]}
+                  onPress={() => setSelectedPaymentMethod('PAYU')}
                 >
                   <View style={[styles.iconCircle, { backgroundColor: '#FDF4FF', width: 44, height: 44, borderRadius: 22 }]}>
                     <CreditCard size={22} color="#D946EF" />
                   </View>
                   <View style={{flex: 1}}>
-                    <Text style={[styles.paymentOptionTitle, selectedPaymentMethod === 'CASHFREE' && {color: '#D946EF'}]}>Other Payment Modes</Text>
-                    <Text style={styles.paymentOptionSub}>Powered by Cashfree</Text>
+                    <Text style={[styles.paymentOptionTitle, selectedPaymentMethod === 'PAYU' && {color: '#D946EF'}]}>PayU</Text>
+                    <Text style={styles.paymentOptionSub}>UPI / Cards via PayU</Text>
                   </View>
                   <View style={styles.radioOuter}>
-                    {selectedPaymentMethod === 'CASHFREE' && <View style={styles.radioInner} />}
+                    {selectedPaymentMethod === 'PAYU' && <View style={styles.radioInner} />}
+                  </View>
+                </TouchableOpacity>
+
+                {/* Stripe Option */}
+                <TouchableOpacity 
+                  style={[styles.paymentOption, selectedPaymentMethod === 'STRIPE' && styles.paymentOptionActive]}
+                  onPress={() => setSelectedPaymentMethod('STRIPE')}
+                >
+                  <View style={[styles.iconCircle, { backgroundColor: '#E0E7FF', width: 44, height: 44, borderRadius: 22 }]}>
+                    <CreditCard size={22} color="#4338CA" />
+                  </View>
+                  <View style={{flex: 1}}>
+                    <Text style={[styles.paymentOptionTitle, selectedPaymentMethod === 'STRIPE' && {color: '#4338CA'}]}>Stripe</Text>
+                    <Text style={styles.paymentOptionSub}>International Cards / Apple Pay</Text>
+                  </View>
+                  <View style={styles.radioOuter}>
+                    {selectedPaymentMethod === 'STRIPE' && <View style={styles.radioInner} />}
                   </View>
                 </TouchableOpacity>
 

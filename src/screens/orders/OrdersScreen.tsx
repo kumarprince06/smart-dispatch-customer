@@ -21,7 +21,9 @@ export interface Order {
 }
 
 const STATUS_COLORS: Record<string, { bg: string; text: string; pulse: string }> = {
-  CREATED: { bg: '#F1F5F9', text: '#475569', pulse: '#94A3B8' },
+  REQUESTED: { bg: '#F1F5F9', text: '#475569', pulse: '#94A3B8' },
+  PAYMENT_PENDING: { bg: '#FEF3C7', text: '#D97706', pulse: '#F59E0B' },
+  CONFIRMED: { bg: '#E0E7FF', text: '#4338CA', pulse: '#6366F1' },
   PENDING: { bg: '#FEF3C7', text: '#D97706', pulse: '#F59E0B' },
   ASSIGNED: { bg: '#EDE9FE', text: '#7C3AED', pulse: '#8B5CF6' },
   ACCEPTED: { bg: '#E0E7FF', text: '#4338CA', pulse: '#6366F1' },
