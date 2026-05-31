@@ -110,7 +110,7 @@ export default function OrderTrackingScreen() {
     }
   }
 
-  // Generate dynamic Leaflet HTML source
+  // Generate dynamic Leaflet HTML source using OSRM for real road polylines
   const mapHtml = useMemo(() => {
     return `
       <!DOCTYPE html>
@@ -123,8 +123,7 @@ export default function OrderTrackingScreen() {
         <style>
           body { padding: 0; margin: 0; }
           html, body, #map { height: 100%; width: 100%; background: #F8FAFC; }
-          
-          /* Custom styled div pins */
+
           .marker-pin {
             width: 28px; height: 28px;
             border-radius: 50% 50% 50% 0;
@@ -134,7 +133,6 @@ export default function OrderTrackingScreen() {
             margin: -14px 0 0 -14px;
             border: 3px solid #FFFFFF;
             box-shadow: 0 4px 10px rgba(0,0,0,0.25);
-            display: flex; justify-content: center; align-items: center;
           }
           .marker-pin::after {
             content: '';
@@ -142,92 +140,122 @@ export default function OrderTrackingScreen() {
             border-radius: 50%;
             background: #FFFFFF;
             position: absolute;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
           }
           .marker-pin.pickup { background: #38BDF8; }
-          .marker-pin.drop { background: #10B981; }
-          
+          .marker-pin.drop   { background: #10B981; }
+
           .driver-pin {
-            width: 32px; height: 32px;
+            width: 36px; height: 36px;
             border-radius: 50%;
             background: #0F172A;
             border: 3px solid #F97316;
-            box-shadow: 0 4px 12px rgba(15,23,42,0.4);
+            box-shadow: 0 4px 14px rgba(15,23,42,0.45);
             display: flex; justify-content: center; align-items: center;
-            position: relative;
           }
-          
-          /* Speed Lightning Arrow for Driver */
           .driver-arrow {
             width: 0; height: 0;
-            border-left: 5px solid transparent;
-            border-right: 5px solid transparent;
-            border-bottom: 10px solid #FFFFFF;
+            border-left: 6px solid transparent;
+            border-right: 6px solid transparent;
+            border-bottom: 12px solid #FFFFFF;
             transform: rotate(45deg);
+          }
+
+          .label-badge {
+            background: rgba(255,255,255,0.95);
+            border-radius: 8px;
+            padding: 2px 7px;
+            font-size: 11px;
+            font-weight: 700;
+            color: #0F172A;
+            white-space: nowrap;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+            border: 1px solid #E2E8F0;
           }
         </style>
       </head>
       <body>
         <div id="map"></div>
         <script>
-          var pickup = [${pickupLat}, ${pickupLng}];
-          var drop = [${dropLat}, ${dropLng}];
+          var pickup   = [${pickupLat}, ${pickupLng}];
+          var drop     = [${dropLat}, ${dropLng}];
           var hasDriver = ${hasDriver};
-          var driver = [${driverLat}, ${driverLng}];
-          
-          var map = L.map('map', {zoomControl: false});
-          L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-            attribution: ''
-          }).addTo(map);
+          var driver   = [${driverLat}, ${driverLng}];
 
-          // Pickup Marker
+          var map = L.map('map', { zoomControl: false, attributionControl: false });
+          L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png').addTo(map);
+
+          // ── Markers ──────────────────────────────────────────────────
           var pickupIcon = L.divIcon({
-            className: 'custom-div-icon',
+            className: '',
             html: "<div class='marker-pin pickup'></div>",
-            iconSize: [28, 28],
-            iconAnchor: [14, 28]
+            iconSize: [28, 28], iconAnchor: [14, 28]
           });
-          L.marker(pickup, {icon: pickupIcon}).addTo(map);
-
-          // Dropoff Marker
           var dropIcon = L.divIcon({
-            className: 'custom-div-icon',
+            className: '',
             html: "<div class='marker-pin drop'></div>",
-            iconSize: [28, 28],
-            iconAnchor: [14, 28]
+            iconSize: [28, 28], iconAnchor: [14, 28]
           });
-          L.marker(drop, {icon: dropIcon}).addTo(map);
+          var driverIcon = L.divIcon({
+            className: '',
+            html: "<div class='driver-pin'><div class='driver-arrow'></div></div>",
+            iconSize: [36, 36], iconAnchor: [18, 18]
+          });
 
-          var bounds = [pickup, drop];
+          L.marker(pickup, { icon: pickupIcon }).bindTooltip("<span class='label-badge'>📦 Pickup</span>", { permanent: true, direction: 'top', offset: [0, -30] }).addTo(map);
+          L.marker(drop,   { icon: dropIcon   }).bindTooltip("<span class='label-badge'>🏠 Delivery</span>", { permanent: true, direction: 'top', offset: [0, -30] }).addTo(map);
+
+          var bounds = L.latLngBounds([pickup, drop]);
 
           if (hasDriver) {
-            // Driver Marker
-            var driverIcon = L.divIcon({
-              className: 'custom-div-icon',
-              html: "<div class='driver-pin'><div class='driver-arrow'></div></div>",
-              iconSize: [32, 32],
-              iconAnchor: [16, 16]
-            });
-            L.marker(driver, {icon: driverIcon}).addTo(map);
-            bounds.push(driver);
-            
-            // Draw path: Driver -> Pickup -> Dropoff
-            var polyline = L.polyline([driver, pickup, drop], {
-              color: '#2563EB',
-              weight: 5,
-              opacity: 0.85,
-              dashArray: '8, 8'
-            }).addTo(map);
-          } else {
-            // Draw path: Pickup -> Dropoff
-            var polyline = L.polyline([pickup, drop], {
-              color: '#2563EB',
-              weight: 5,
-              opacity: 0.85,
-              dashArray: '8, 8'
-            }).addTo(map);
+            L.marker(driver, { icon: driverIcon }).bindTooltip("<span class='label-badge'>🛵 Driver</span>", { permanent: true, direction: 'top', offset: [0, -40] }).addTo(map);
+            bounds.extend(driver);
           }
 
-          map.fitBounds(bounds, {padding: [30, 30]});
+          map.fitBounds(bounds, { padding: [40, 40] });
+
+          // ── Road-following polylines via OSRM ─────────────────────────
+          function drawRoute(latlngs, color, dashArray) {
+            // Build OSRM coordinate string: lng,lat;lng,lat
+            var coords = latlngs.map(function(ll) { return ll[1] + ',' + ll[0]; }).join(';');
+            var url = 'https://router.project-osrm.org/route/v1/driving/' + coords + '?overview=full&geometries=geojson';
+
+            fetch(url)
+              .then(function(r) { return r.json(); })
+              .then(function(data) {
+                if (data.routes && data.routes[0]) {
+                  var coords = data.routes[0].geometry.coordinates.map(function(c) {
+                    return [c[1], c[0]]; // GeoJSON is [lng, lat] → Leaflet wants [lat, lng]
+                  });
+                  L.polyline(coords, {
+                    color: color,
+                    weight: 5,
+                    opacity: 0.9,
+                    dashArray: dashArray || null,
+                    lineJoin: 'round',
+                    lineCap: 'round'
+                  }).addTo(map);
+                } else {
+                  // Fallback: straight line if OSRM fails
+                  L.polyline(latlngs, { color: color, weight: 5, opacity: 0.6, dashArray: '6,8' }).addTo(map);
+                }
+              })
+              .catch(function() {
+                // Fallback: straight line if offline
+                L.polyline(latlngs, { color: color, weight: 5, opacity: 0.6, dashArray: '6,8' }).addTo(map);
+              });
+          }
+
+          if (hasDriver) {
+            // Driver → Pickup (orange dashed — "on the way to collect")
+            drawRoute([driver, pickup], '#F97316', '6,6');
+            // Pickup → Drop (blue solid — "planned delivery route")
+            drawRoute([pickup, drop], '#2563EB', null);
+          } else {
+            // No driver yet — just show pickup → drop route
+            drawRoute([pickup, drop], '#2563EB', '8,8');
+          }
         </script>
       </body>
       </html>
