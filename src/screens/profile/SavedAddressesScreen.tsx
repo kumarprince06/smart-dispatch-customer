@@ -1,10 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, FlatList, ActivityIndicator, Modal, TextInput, KeyboardAvoidingView, Platform, Alert, RefreshControl } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, FlatList, ActivityIndicator, Modal, TextInput, KeyboardAvoidingView, Platform, Alert, RefreshControl, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ArrowLeft, MapPin, Plus, Home, Briefcase, MoreVertical } from 'lucide-react-native';
 import { useNavigation } from '@react-navigation/native';
 import api from '../../api/axios';
-import { WebView } from 'react-native-webview';
 import * as Location from 'expo-location';
 
 export interface Address {
@@ -27,68 +26,6 @@ export default function SavedAddressesScreen() {
   // Default coordinates (Delhi)
   const [lat, setLat] = useState(28.6139);
   const [lng, setLng] = useState(77.2090);
-
-  const mapHtml = `
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-      <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-      <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-      <style>
-        body { padding: 0; margin: 0; }
-        html, body, #map { height: 100%; width: 100%; }
-        /* Custom Marker CSS */
-        .custom-marker {
-          display: flex;
-          justify-content: center;
-          align-items: center;
-        }
-        .pin {
-          width: 24px;
-          height: 24px;
-          background-color: #0F172A;
-          border-radius: 12px 12px 12px 0;
-          transform: rotate(-45deg);
-          border: 3px solid white;
-          box-shadow: 0 4px 6px rgba(0,0,0,0.3);
-        }
-      </style>
-    </head>
-    <body>
-      <div id="map"></div>
-      <script>
-        var map = L.map('map', {zoomControl: false}).setView([${lat}, ${lng}], 15);
-        L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-          attribution: ''
-        }).addTo(map);
-        
-        var customIcon = L.divIcon({
-          className: 'custom-marker',
-          html: '<div class="pin"></div>',
-          iconSize: [24, 24],
-          iconAnchor: [12, 24]
-        });
-        
-        var marker = L.marker([${lat}, ${lng}], {icon: customIcon, draggable: true}).addTo(map);
-        
-        // Update marker when map is dragged
-        map.on('move', function () {
-          marker.setLatLng(map.getCenter());
-        });
-        
-        // Send coordinates back to React Native when movement stops
-        map.on('moveend', function () {
-          var center = map.getCenter();
-          window.ReactNativeWebView.postMessage(JSON.stringify({
-            lat: center.lat,
-            lng: center.lng
-          }));
-        });
-      </script>
-    </body>
-    </html>
-  `;
 
   const fetchAddresses = async () => {
     try {
@@ -222,20 +159,12 @@ export default function SavedAddressesScreen() {
             />
 
             <View style={styles.mapWrap}>
-              <WebView
-                source={{ html: mapHtml }}
-                style={{ flex: 1 }}
-                scrollEnabled={false}
-                onMessage={(event) => {
-                  try {
-                    const data = JSON.parse(event.nativeEvent.data);
-                    setLat(data.lat);
-                    setLng(data.lng);
-                  } catch (e) {}
-                }}
-              />
+              <View style={{ flex: 1, backgroundColor: '#E2E8F0', justifyContent: 'center', alignItems: 'center' }}>
+                <MapPin size={32} color="#0F172A" />
+                <Text style={{ marginTop: 8, color: '#64748B', fontWeight: '500' }}>{lat.toFixed(4)}, {lng.toFixed(4)}</Text>
+              </View>
               <View style={styles.mapOverlayTextWrap}>
-                <Text style={styles.mapOverlayText}>Drag map to pin location</Text>
+                <Text style={styles.mapOverlayText}>Location Pinned via GPS</Text>
               </View>
             </View>
 

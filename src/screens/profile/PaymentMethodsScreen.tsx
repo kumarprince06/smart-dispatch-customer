@@ -92,6 +92,25 @@ export default function PaymentMethodsScreen() {
     }
   };
 
+  const handleTopUp = async () => {
+    if (!amount || parseFloat(amount) <= 0) return;
+    setToppingUp(true);
+    try {
+      // Assuming a wallet topup endpoint exists or this is mocked
+      const res = await api.post('/customers/wallet/topup', { amount: parseFloat(amount) });
+      if (res.data.success) {
+        Alert.alert('Success', `₹${amount} added to your wallet!`);
+        setModalVisible(false);
+        setAmount('');
+        fetchPayments();
+      }
+    } catch (error: any) {
+      Alert.alert('Top Up Failed', error?.response?.data?.message || 'Something went wrong');
+    } finally {
+      setToppingUp(false);
+    }
+  };
+
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <View style={styles.header}>
