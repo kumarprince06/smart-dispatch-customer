@@ -23,6 +23,7 @@ export default function SavedAddressesScreen() {
   const [newAddress, setNewAddress] = useState('');
   const [saving, setSaving] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [isLocating, setIsLocating] = useState(false);
   
   // Default coordinates (Delhi)
   const [lat, setLat] = useState(28.6139);
@@ -80,7 +81,7 @@ export default function SavedAddressesScreen() {
       </body>
       </html>
     `;
-  }, [modalVisible]); // Only regenerate HTML when modal opens/closes, NOT when dragging!
+  }, [modalVisible, isLocating]); // Re-generate only when modal opens or when locating finishes!
 
   const fetchAddresses = async () => {
     try {
@@ -107,10 +108,12 @@ export default function SavedAddressesScreen() {
 
   const openAddModal = async () => {
     setModalVisible(true);
+    setIsLocating(true);
+    setNewAddress('Fetching location...');
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status === 'granted') {
-        const location = await Location.getCurrentPositionAsync({});
+        const location = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
         const currentLat = location.coords.latitude;
         const currentLng = location.coords.longitude;
         setLat(currentLat);
@@ -124,13 +127,19 @@ export default function SavedAddressesScreen() {
         
         if (geocode && geocode.length > 0) {
           const place = geocode[0];
-          // Example: "123 Main St, New York, NY 10001"
           const readableAddress = `${place.street || place.name || ''}, ${place.city || ''}, ${place.region || ''} ${place.postalCode || ''}`.replace(/^[,\s]+|[,\s]+$/g, '').trim();
           setNewAddress(readableAddress);
+        } else {
+          setNewAddress('');
         }
+      } else {
+        setNewAddress('');
       }
     } catch (e) {
       console.log('Location permission failed', e);
+      setNewAddress('');
+    } finally {
+      setIsLocating(false);
     }
   };
 
@@ -229,33 +238,41 @@ export default function SavedAddressesScreen() {
             />
 
             <View style={styles.mapWrap}>
-              <WebView
-                source={{ html: mapHtml }}
-                style={{ flex: 1 }}
-                scrollEnabled={false}
-                onMessage={async (event) => {
-                  try {
-                    const data = JSON.parse(event.nativeEvent.data);
-                    setLat(data.lat);
-                    setLng(data.lng);
-                    
-                    // Trigger reverse geocode when map pin stops dragging
-                    const geocode = await Location.reverseGeocodeAsync({
-                      latitude: data.lat,
-                      longitude: data.lng
-                    });
-                    
-                    if (geocode && geocode.length > 0) {
-                      const place = geocode[0];
-                      const readableAddress = `${place.street || place.name || ''}, ${place.city || ''}, ${place.region || ''} ${place.postalCode || ''}`.replace(/^[,\s]+|[,\s]+$/g, '').trim();
-                      setNewAddress(readableAddress);
-                    }
-                  } catch (e) {}
-                }}
-              />
-              <View style={styles.mapOverlayTextWrap}>
-                <Text style={styles.mapOverlayText}>Drag map to pin location</Text>
-              </View>
+              {isLocating ? (
+                <View style={{ flex: 1, backgroundColor: '#F8FAFC', justifyContent: 'center', alignItems: 'center' }}>
+                  <ActivityIndicator size="large" color="#0F172A" />
+                  <Text style={{ marginTop: 12, color: '#64748B', fontWeight: '600' }}>Pinpointing your location...</Text>
+                </View>
+              ) : (
+                <>
+                  <WebView
+                    source={{ html: mapHtml }}
+                    style={{ flex: 1 }}
+                    scrollEnabled={false}
+                    onMessage={async (event) => {
+                      try {
+                        const data = JSON.parse(event.nativeEvent.data);
+                        setLat(data.lat);
+                        setLng(data.lng);
+                        
+                        const geocode = await Location.reverseGeocodeAsync({
+                          latitude: data.lat,
+                          longitude: data.lng
+                        });
+                        
+                        if (geocode && geocode.length > 0) {
+                          const place = geocode[0];
+                          const readableAddress = `${place.street || place.name || ''}, ${place.city || ''}, ${place.region || ''} ${place.postalCode || ''}`.replace(/^[,\s]+|[,\s]+$/g, '').trim();
+                          setNewAddress(readableAddress);
+                        }
+                      } catch (e) {}
+                    }}
+                  />
+                  <View style={styles.mapOverlayTextWrap}>
+                    <Text style={styles.mapOverlayText}>Drag map to pin location</Text>
+                  </View>
+                </>
+              )}
             </View>
 
             <View style={styles.modalActions}>
@@ -297,7 +314,7 @@ const styles = StyleSheet.create({
   labelTextActive: { color: '#FFFFFF' },
   input: { backgroundColor: '#F8FAFC', borderWidth: 1, borderColor: '#E2E8F0', borderRadius: 16, padding: 16, height: 80, fontSize: 15, color: '#0F172A', textAlignVertical: 'top', marginBottom: 16 },
   
-  mapWrap: { height: 180, borderRadius: 16, overflow: 'hidden', marginBottom: 24, borderWidth: 1, borderColor: '#E2E8F0', position: 'relative' },
+  mapWrap: { height: 320, borderRadius: 16, overflow: 'hidden', marginBottom: 24, borderWidth: 1, borderColor: '#E2E8F0', position: 'relative' },
   mapOverlayTextWrap: { position: 'absolute', top: 12, alignSelf: 'center', backgroundColor: '#0F172A', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 12 },
   mapOverlayText: { color: '#FFFFFF', fontSize: 12, fontWeight: '700' },
   
