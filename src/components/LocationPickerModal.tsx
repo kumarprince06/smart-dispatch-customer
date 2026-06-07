@@ -23,7 +23,7 @@ export default function LocationPickerModal({
 }: LocationPickerModalProps) {
   
   const webViewRef = useRef<WebView>(null);
-  const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const searchTimeoutRef = useRef<any>(null);
   
   const [lat, setLat] = useState(initialLat);
   const [lng, setLng] = useState(initialLng);

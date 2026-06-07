@@ -35,6 +35,17 @@ api.interceptors.response.use((response) => {
   if (error.response?.data) {
     console.error('📄 [ERROR DATA]:', JSON.stringify(error.response.data, null, 2));
   }
+
+  if (error.response?.status === 401) {
+    console.log('[API] Unauthorized request. Logging out user.');
+    try {
+      const { useAuthStore } = require('../store/authStore');
+      useAuthStore.getState().logout();
+    } catch (e) {
+      console.error('Failed to trigger dynamic logout', e);
+    }
+  }
+
   return Promise.reject(error);
 });
 

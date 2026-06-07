@@ -11,14 +11,16 @@ const { width } = Dimensions.get('window');
 
 // Status color mapping for a highly premium look
 const STATUS_COLORS: Record<string, { bg: string; text: string; dot: string }> = {
-  CREATED: { bg: '#F1F5F9', text: '#475569', dot: '#94A3B8' },
-  PENDING: { bg: '#FFF7ED', text: '#C2410C', dot: '#F97316' },
+  REQUESTED: { bg: '#F1F5F9', text: '#475569', dot: '#94A3B8' },
+  PAYMENT_PENDING: { bg: '#FFF7ED', text: '#C2410C', dot: '#F97316' },
+  PAYMENT_FAILED: { bg: '#FEF2F2', text: '#B91C1C', dot: '#EF4444' },
+  CONFIRMED: { bg: '#ECFDF5', text: '#047857', dot: '#10B981' },
   ASSIGNED: { bg: '#FAF5FF', text: '#7E22CE', dot: '#A855F7' },
-  ACCEPTED: { bg: '#EEF2FF', text: '#3730A3', dot: '#4F46E5' },
   PICKED_UP: { bg: '#EFF6FF', text: '#1D4ED8', dot: '#3B82F6' },
   IN_TRANSIT: { bg: '#E0F2FE', text: '#0369A1', dot: '#0EA5E9' },
   DELIVERED: { bg: '#ECFDF5', text: '#047857', dot: '#10B981' },
   CANCELLED: { bg: '#FEF2F2', text: '#B91C1C', dot: '#EF4444' },
+  FAILED: { bg: '#FEF2F2', text: '#B91C1C', dot: '#EF4444' },
 };
 
 export default function OrderTrackingScreen() {
@@ -313,7 +315,32 @@ export default function OrderTrackingScreen() {
           </View>
         </View>
 
-        {/* 2. Package Details Card (FIRST in the layout details) */}
+        {/* 2. Verification OTP Card */}
+        {['REQUESTED', 'PAYMENT_PENDING', 'CONFIRMED', 'ASSIGNED', 'PICKED_UP', 'IN_TRANSIT'].includes(status) && (
+          <View style={styles.otpCard}>
+            <View style={styles.otpHeader}>
+              <ShieldCheck size={20} color="#4F46E5" />
+              <Text style={styles.otpTitle}>Share Verification OTP</Text>
+            </View>
+            <Text style={styles.otpSub}>
+              {['PICKED_UP', 'IN_TRANSIT'].includes(status)
+                ? 'Give this OTP to the rider when they arrive at the delivery address.'
+                : 'Give this OTP to the rider when they arrive at the pickup address.'}
+            </Text>
+            <View style={styles.otpCodeContainer}>
+              <Text style={styles.otpLabel}>
+                {['PICKED_UP', 'IN_TRANSIT'].includes(status) ? 'DELIVERY OTP' : 'PICKUP OTP'}
+              </Text>
+              <Text style={styles.otpValue}>
+                {['PICKED_UP', 'IN_TRANSIT'].includes(status)
+                  ? orderData?.deliveryOtp || '----'
+                  : orderData?.pickupOtp || '----'}
+              </Text>
+            </View>
+          </View>
+        )}
+
+        {/* 3. Package Details Card (FIRST in the layout details) */}
         <View style={styles.detailCard}>
           <View style={styles.sectionTitleRow}>
             <Package size={20} color="#2563EB" />
@@ -421,7 +448,7 @@ export default function OrderTrackingScreen() {
         {hasDriver ? (
           <View style={styles.driverCard}>
             <View style={styles.driverAvatar}>
-              <Text style={styles.avatarText}>{orderData?.driverName[0]}</Text>
+              <Text style={styles.avatarText}>{orderData?.driverName ? orderData.driverName[0] : 'D'}</Text>
             </View>
             <View style={styles.driverInfo}>
               <Text style={styles.driverName}>{orderData.driverName}</Text>
@@ -436,7 +463,7 @@ export default function OrderTrackingScreen() {
               </TouchableOpacity>
             </View>
           </View>
-        ) : (
+        ) : ['REQUESTED', 'PAYMENT_PENDING', 'CONFIRMED'].includes(status) ? (
           <View style={styles.assigningCard}>
             <ActivityIndicator size="small" color="#F97316" style={{ marginRight: 12 }} />
             <View style={{ flex: 1 }}>
@@ -444,10 +471,10 @@ export default function OrderTrackingScreen() {
               <Text style={styles.assigningSub}>Searching for nearby FataFat pilots</Text>
             </View>
           </View>
-        )}
+        ) : null}
 
         {/* 6. Cancel Delivery Action */}
-        {['CREATED', 'PENDING', 'ASSIGNED'].includes(status) && (
+        {['REQUESTED', 'PAYMENT_PENDING', 'CONFIRMED', 'ASSIGNED'].includes(status) && (
           <TouchableOpacity style={styles.cancelBtn} onPress={handleCancelOrder} disabled={cancelling}>
             {cancelling ? (
               <ActivityIndicator color="#EF4444" />
@@ -550,5 +577,58 @@ const styles = StyleSheet.create({
 
   // Instructions Styles
   instructionsContainer: { marginTop: 16, padding: 12, backgroundColor: '#EFF6FF', borderRadius: 16, borderLeftWidth: 3, borderLeftColor: '#3B82F6' },
-  instructionsText: { fontSize: 13, fontWeight: '700', color: '#1D4ED8', lineHeight: 18 }
+  instructionsText: { fontSize: 13, fontWeight: '700', color: '#1D4ED8', lineHeight: 18 },
+
+  // OTP Card Styles
+  otpCard: {
+    backgroundColor: '#EEF2FF',
+    padding: 20,
+    borderRadius: 24,
+    borderWidth: 1.5,
+    borderColor: '#C7D2FE',
+    shadowColor: '#4F46E5',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.08,
+    shadowRadius: 16,
+    elevation: 3,
+  },
+  otpHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 8,
+  },
+  otpTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#3730A3',
+  },
+  otpSub: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#4F46E5',
+    lineHeight: 18,
+    marginBottom: 16,
+  },
+  otpCodeContainer: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    paddingVertical: 12,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#E0E7FF',
+  },
+  otpLabel: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#6366F1',
+    letterSpacing: 1,
+    marginBottom: 4,
+  },
+  otpValue: {
+    fontSize: 28,
+    fontWeight: '900',
+    color: '#312E81',
+    letterSpacing: 6,
+  },
 });

@@ -18,20 +18,20 @@ export default function HomeScreen() {
   const slideAnim = useRef(new Animated.Value(30)).current;
   const floatAnim = useRef(new Animated.Value(0)).current;
 
-  // useFocusEffect(
-  //   React.useCallback(() => {
-  //     api.get('/orders/my-orders?size=1')
-  //       .then(res => {
-  //         const content = res.data?.data?.content || [];
-  //         if (content.length > 0 && ['PENDING', 'ASSIGNED', 'IN_TRANSIT', 'PICKED_UP'].includes(content[0].status)) {
-  //           setActiveOrder(content[0]);
-  //         } else {
-  //           setActiveOrder(null);
-  //         }
-  //       })
-  //       .catch(console.error);
-  //   }, [])
-  // );
+  useFocusEffect(
+    React.useCallback(() => {
+      api.get('/orders/my-orders?size=1')
+        .then(res => {
+          const content = res.data?.data?.content || [];
+          if (content.length > 0 && ['REQUESTED', 'PAYMENT_PENDING', 'CONFIRMED', 'ASSIGNED', 'IN_TRANSIT', 'PICKED_UP'].includes(content[0].status)) {
+            setActiveOrder(content[0]);
+          } else {
+            setActiveOrder(null);
+          }
+        })
+        .catch(console.error);
+    }, [])
+  );
 
   useEffect(() => {
     Animated.parallel([
@@ -149,7 +149,7 @@ export default function HomeScreen() {
               { icon: <Navigation size={28} color="#FFFFFF" strokeWidth={1.5} />, label: 'Intercity', sub: 'Long range', gradient: ['#8B5CF6', '#7C3AED'] },
             ].map((item, index) => (
               <TouchableOpacity key={index} style={styles.serviceCard} activeOpacity={0.8} onPress={() => (navigation as any).navigate('CreateOrder')}>
-                <LinearGradient colors={item.gradient} style={styles.serviceIconWrap}>
+                <LinearGradient colors={item.gradient as [string, string]} style={styles.serviceIconWrap}>
                   {item.icon}
                 </LinearGradient>
                 <Text style={styles.serviceLabel}>{item.label}</Text>

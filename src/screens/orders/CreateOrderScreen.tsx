@@ -241,7 +241,7 @@ export default function CreateOrderScreen({ navigation }: any) {
               } else if (selectedPaymentMethod === 'STRIPE' || selectedPaymentMethod === 'PAYU') {
                 if (sessionData.paymentUrl) {
                   Linking.openURL(sessionData.paymentUrl);
-                  showSnackbar('Redirecting to payment gateway...', 'info');
+                  showSnackbar('Redirecting to payment gateway...');
                   setTimeout(() => navigation.navigate('Main', { screen: 'Deliveries' }), 1500);
                 } else {
                   showSnackbar('Could not retrieve payment link.', 'error');
