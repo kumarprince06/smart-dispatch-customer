@@ -1,7 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, TextInput, ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView, Dimensions, Modal, Linking } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { ArrowLeft, MapPin, Package, CheckCircle, Navigation, Info, ChevronRight, Map, Wallet, CreditCard, Banknote, ShieldCheck } from 'lucide-react-native';
+import { ArrowLeft, MapPin, Package, CheckCircle, Navigation, Info, ChevronRight, Map, Wallet, CreditCard, Banknote, ShieldCheck, Globe, Smartphone } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 // @ts-ignore
 import RazorpayCheckout from 'react-native-razorpay';
@@ -13,6 +13,20 @@ import { Snackbar } from '../../components/common/Snackbar';
 import { useSnackbar } from '../../hooks/useSnackbar';
 
 const { width } = Dimensions.get('window');
+
+// Maps backend provider keys to icons, colors for the payment selector
+const getProviderVisuals = (provider: string) => {
+  const map: Record<string, { icon: React.ReactNode; bgColor: string; activeColor: string }> = {
+    WALLET:           { icon: <Wallet size={22} color="#3B82F6" />,       bgColor: '#EFF6FF', activeColor: '#3B82F6' },
+    RAZORPAY:         { icon: <ShieldCheck size={22} color="#10B981" />,  bgColor: '#F0FDF4', activeColor: '#10B981' },
+    PAYU:             { icon: <CreditCard size={22} color="#D946EF" />,   bgColor: '#FDF4FF', activeColor: '#D946EF' },
+    STRIPE:           { icon: <CreditCard size={22} color="#4338CA" />,   bgColor: '#E0E7FF', activeColor: '#4338CA' },
+    PAYSTACK:         { icon: <Globe size={22} color="#0EA5E9" />,        bgColor: '#E0F2FE', activeColor: '#0EA5E9' },
+    CASHFREE:         { icon: <Smartphone size={22} color="#6366F1" />,   bgColor: '#EEF2FF', activeColor: '#6366F1' },
+    CASH_ON_DELIVERY: { icon: <Banknote size={22} color="#F97316" />,     bgColor: '#FFF7ED', activeColor: '#F97316' },
+  };
+  return map[provider] || { icon: <CreditCard size={22} color="#64748B" />, bgColor: '#F1F5F9', activeColor: '#64748B' };
+};
 
 export default function CreateOrderScreen({ navigation }: any) {
   const { user } = useAuthStore();
@@ -50,16 +64,33 @@ export default function CreateOrderScreen({ navigation }: any) {
 
   // Payment Modal State
   const [paymentModalVisible, setPaymentModalVisible] = useState(false);
-  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<'WALLET' | 'RAZORPAY' | 'PAYU' | 'STRIPE' | 'COD'>('WALLET');
+  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState('WALLET');
   const [walletBalance, setWalletBalance] = useState(0);
 
+  // Dynamic providers from backend
+  const [providers, setProviders] = useState<{provider: string, displayName: string}[]>([]);
+  const [providersLoading, setProvidersLoading] = useState(false);
+
   React.useEffect(() => {
-    // Fetch wallet balance when screen mounts
+    // Fetch wallet balance and payment providers on mount
     api.get('/customers/me').then(res => {
       if (res.data.success && res.data.data.walletBalance) {
         setWalletBalance(res.data.data.walletBalance);
       }
     }).catch(e => console.log('Error fetching wallet', e));
+
+    // Fetch available payment providers from backend
+    setProvidersLoading(true);
+    api.get('/payments/providers').then(res => {
+      if (res.data.success && res.data.data) {
+        setProviders(res.data.data);
+        // Default to first provider if available
+        if (res.data.data.length > 0) {
+          setSelectedPaymentMethod(res.data.data[0].provider);
+        }
+      }
+    }).catch(e => console.log('Error fetching providers', e))
+     .finally(() => setProvidersLoading(false));
   }, []);
 
 
@@ -189,7 +220,7 @@ export default function CreateOrderScreen({ navigation }: any) {
         const newOrder = orderRes.data.data;
         
         // 2. Process Payment
-        if (selectedPaymentMethod === 'COD') {
+        if (selectedPaymentMethod === 'CASH_ON_DELIVERY') {
           // COD — no payment needed upfront
           showSnackbar('Order placed! Pay rider on delivery. 🎉', 'success');
           setTimeout(() => navigation.navigate('Main', { screen: 'Deliveries' }), 1500);
@@ -238,6 +269,15 @@ export default function CreateOrderScreen({ navigation }: any) {
                     showSnackbar('Payment cancelled or failed.', 'error');
                     setTimeout(() => navigation.navigate('Main', { screen: 'Deliveries' }), 2000);
                   });
+              } else if (selectedPaymentMethod === 'PAYSTACK') {
+                // Paystack Flow — redirect to authorization_url
+                if (sessionData.paymentUrl) {
+                  Linking.openURL(sessionData.paymentUrl);
+                  showSnackbar('Redirecting to Paystack Checkout...');
+                  setTimeout(() => navigation.navigate('Main', { screen: 'Deliveries' }), 1500);
+                } else {
+                  showSnackbar('Could not retrieve Paystack checkout link.', 'error');
+                }
               } else if (selectedPaymentMethod === 'STRIPE' || selectedPaymentMethod === 'PAYU') {
                 if (sessionData.paymentUrl) {
                   Linking.openURL(sessionData.paymentUrl);
@@ -513,91 +553,39 @@ export default function CreateOrderScreen({ navigation }: any) {
               </View>
 
               <ScrollView style={{maxHeight: 300, marginBottom: 20}} showsVerticalScrollIndicator={false}>
-                {/* Wallet Option */}
-                <TouchableOpacity 
-                  style={[styles.paymentOption, selectedPaymentMethod === 'WALLET' && styles.paymentOptionActive, walletBalance < (priceEstimate?.estimatedFee || 0) && { opacity: 0.5 }]}
-                  disabled={walletBalance < (priceEstimate?.estimatedFee || 0)}
-                  onPress={() => setSelectedPaymentMethod('WALLET')}
-                >
-                  <View style={[styles.iconCircle, { backgroundColor: '#EFF6FF', width: 44, height: 44, borderRadius: 22 }]}>
-                    <Wallet size={22} color="#3B82F6" />
+                {providersLoading ? (
+                  <View style={{paddingVertical: 40, alignItems: 'center'}}>
+                    <ActivityIndicator size="small" color="#3B82F6" />
+                    <Text style={{fontSize: 13, color: '#94A3B8', marginTop: 8}}>Loading payment methods...</Text>
                   </View>
-                  <View style={{flex: 1}}>
-                    <Text style={[styles.paymentOptionTitle, selectedPaymentMethod === 'WALLET' && {color: '#3B82F6'}]}>Fatafat Wallet</Text>
-                    <Text style={styles.paymentOptionSub}>Balance: ₹{walletBalance.toFixed(2)}</Text>
-                  </View>
-                  <View style={styles.radioOuter}>
-                    {selectedPaymentMethod === 'WALLET' && <View style={styles.radioInner} />}
-                  </View>
-                </TouchableOpacity>
+                ) : (
+                  providers.map((p) => {
+                    const config = getProviderVisuals(p.provider);
+                    const isSelected = selectedPaymentMethod === p.provider;
+                    const isWallet = p.provider === 'WALLET';
+                    const isDisabled = isWallet && walletBalance < (priceEstimate?.estimatedFee || 0);
 
-                {/* Razorpay (Cards/UPI) Option */}
-                <TouchableOpacity 
-                  style={[styles.paymentOption, selectedPaymentMethod === 'RAZORPAY' && styles.paymentOptionActive]}
-                  onPress={() => setSelectedPaymentMethod('RAZORPAY')}
-                >
-                  <View style={[styles.iconCircle, { backgroundColor: '#F0FDF4', width: 44, height: 44, borderRadius: 22 }]}>
-                    <ShieldCheck size={22} color="#10B981" />
-                  </View>
-                  <View style={{flex: 1}}>
-                    <Text style={[styles.paymentOptionTitle, selectedPaymentMethod === 'RAZORPAY' && {color: '#10B981'}]}>Cards / UPI / NetBanking</Text>
-                    <Text style={styles.paymentOptionSub}>Secured by Razorpay</Text>
-                  </View>
-                  <View style={styles.radioOuter}>
-                    {selectedPaymentMethod === 'RAZORPAY' && <View style={styles.radioInner} />}
-                  </View>
-                </TouchableOpacity>
-                
-                {/* PayU Option */}
-                <TouchableOpacity 
-                  style={[styles.paymentOption, selectedPaymentMethod === 'PAYU' && styles.paymentOptionActive]}
-                  onPress={() => setSelectedPaymentMethod('PAYU')}
-                >
-                  <View style={[styles.iconCircle, { backgroundColor: '#FDF4FF', width: 44, height: 44, borderRadius: 22 }]}>
-                    <CreditCard size={22} color="#D946EF" />
-                  </View>
-                  <View style={{flex: 1}}>
-                    <Text style={[styles.paymentOptionTitle, selectedPaymentMethod === 'PAYU' && {color: '#D946EF'}]}>PayU</Text>
-                    <Text style={styles.paymentOptionSub}>UPI / Cards via PayU</Text>
-                  </View>
-                  <View style={styles.radioOuter}>
-                    {selectedPaymentMethod === 'PAYU' && <View style={styles.radioInner} />}
-                  </View>
-                </TouchableOpacity>
-
-                {/* Stripe Option */}
-                <TouchableOpacity 
-                  style={[styles.paymentOption, selectedPaymentMethod === 'STRIPE' && styles.paymentOptionActive]}
-                  onPress={() => setSelectedPaymentMethod('STRIPE')}
-                >
-                  <View style={[styles.iconCircle, { backgroundColor: '#E0E7FF', width: 44, height: 44, borderRadius: 22 }]}>
-                    <CreditCard size={22} color="#4338CA" />
-                  </View>
-                  <View style={{flex: 1}}>
-                    <Text style={[styles.paymentOptionTitle, selectedPaymentMethod === 'STRIPE' && {color: '#4338CA'}]}>Stripe</Text>
-                    <Text style={styles.paymentOptionSub}>International Cards / Apple Pay</Text>
-                  </View>
-                  <View style={styles.radioOuter}>
-                    {selectedPaymentMethod === 'STRIPE' && <View style={styles.radioInner} />}
-                  </View>
-                </TouchableOpacity>
-
-                {/* COD Option */}
-                <TouchableOpacity 
-                  style={[styles.paymentOption, selectedPaymentMethod === 'COD' && styles.paymentOptionActive]}
-                  onPress={() => setSelectedPaymentMethod('COD')}
-                >
-                  <View style={[styles.iconCircle, { backgroundColor: '#FFF7ED', width: 44, height: 44, borderRadius: 22 }]}>
-                    <Banknote size={22} color="#F97316" />
-                  </View>
-                  <View style={{flex: 1}}>
-                    <Text style={[styles.paymentOptionTitle, selectedPaymentMethod === 'COD' && {color: '#F97316'}]}>Cash on Delivery</Text>
-                    <Text style={styles.paymentOptionSub}>Pay rider in cash or UPI</Text>
-                  </View>
-                  <View style={styles.radioOuter}>
-                    {selectedPaymentMethod === 'COD' && <View style={styles.radioInner} />}
-                  </View>
-                </TouchableOpacity>
+                    return (
+                      <TouchableOpacity
+                        key={p.provider}
+                        style={[styles.paymentOption, isSelected && styles.paymentOptionActive, isDisabled && { opacity: 0.5 }]}
+                        disabled={isDisabled}
+                        onPress={() => setSelectedPaymentMethod(p.provider)}
+                      >
+                        <View style={[styles.iconCircle, { backgroundColor: config.bgColor, width: 44, height: 44, borderRadius: 22 }]}>
+                          {config.icon}
+                        </View>
+                        <View style={{flex: 1}}>
+                          <Text style={[styles.paymentOptionTitle, isSelected && {color: config.activeColor}]}>{p.displayName}</Text>
+                          {isWallet && <Text style={styles.paymentOptionSub}>Balance: ₹{walletBalance.toFixed(2)}</Text>}
+                        </View>
+                        <View style={styles.radioOuter}>
+                          {isSelected && <View style={styles.radioInner} />}
+                        </View>
+                      </TouchableOpacity>
+                    );
+                  })
+                )}
               </ScrollView>
 
               <TouchableOpacity
